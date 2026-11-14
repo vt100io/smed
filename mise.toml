@@ -1,0 +1,17 @@
+[tools]
+go = "1.27.4"
+
+[tasks.check]
+description = "Check for known vulnerabilities"
+# go run builds govulncheck with this repo's Go. A mise-installed govulncheck
+# is shared by every project on the machine and may be built with an older Go.
+run = "go run golang.org/x/vuln/cmd/govulncheck@latest ./..."
+
+[tasks.test]
+description = "Run the tests"
+run = "go test ./..."
+
+[tasks.ci]
+description = "What Punchcard runs on push and PR"
+depends = ["check", "test"]
+run = "go vet ./..."
