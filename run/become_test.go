@@ -97,13 +97,20 @@ func TestBecomeAgainstRealSudoWithoutNOPASSWD(t *testing.T) {
 	// real, not simulated, "NOPASSWD not configured" case. If that ever
 	// stops being true in whatever environment runs this test, the
 	// skip below keeps it honest rather than silently asserting nothing.
-	check := exec.Command("sudo", "-n", "true")
-	if err := check.Run(); err == nil {
+	out, err := exec.Command("sudo", "-n", "true").CombinedOutput()
+	if err == nil {
 		t.Skip("this environment has passwordless sudo configured; nothing to detect")
+	}
+	// sudo can also fail for reasons that have nothing to do with a
+	// password: not installed, or blocked by a sandbox such as a systemd
+	// service with NoNewPrivileges (a CI server). Only a password prompt
+	// is the case this test is about.
+	if !looksLikeNoPasswordlessSudo(string(out)) {
+		t.Skipf("sudo fails here for another reason: %s", strings.TrimSpace(string(out)))
 	}
 
 	b := &Become{Inner: localSudoRunner{}}
-	_, err := b.Run(context.Background(), "true")
+	_, err = b.Run(context.Background(), "true")
 	if err == nil {
 		t.Fatal("expected an error — this environment's sudo requires a password")
 	}
