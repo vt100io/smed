@@ -159,3 +159,43 @@ func TestListenPortAndDomains(t *testing.T) {
 		t.Errorf("domains %q", d)
 	}
 }
+
+func TestPackages(t *testing.T) {
+	rep, err := fixture(t).Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Newest first, the rotated log after the current one; the run with a
+	// damaged date is skipped, not glued onto the one before.
+	p := rep.Packages
+	if len(p) != 4 {
+		t.Fatalf("%d runs: %+v", len(p), p)
+	}
+	if p[0].Error == "" || len(p[0].Removed) != 1 || p[0].Removed[0] != (Package{Name: "linux-image-6.12.117+deb13-cloud-amd64", From: "6.12.117-1"}) {
+		t.Errorf("removal %+v", p[0])
+	}
+	if p[1].Installed[0] != (Package{Name: "linux-image-6.12.118+deb13-cloud-amd64", To: "6.12.118-1"}) ||
+		p[1].Upgraded[0] != (Package{Name: "linux-image-cloud-amd64", From: "6.12.117-1", To: "6.12.118-1"}) {
+		t.Errorf("kernel %+v", p[1])
+	}
+	if len(p[2].Upgraded) != 2 || p[2].Command != "/usr/bin/unattended-upgrade" {
+		t.Errorf("upgrade %+v", p[2])
+	}
+	if p[3].RequestedBy != "stianh" || p[3].Command != "apt install jq" || len(p[3].Installed) != 2 {
+		t.Errorf("rotated %+v", p[3])
+	}
+	if !rep.Reboot.Required || len(rep.Reboot.Packages) != 1 {
+		t.Errorf("reboot %+v", rep.Reboot)
+	}
+}
+
+func TestAptTimesAreTheMachines(t *testing.T) {
+	oslo, err := time.LoadLocation("Europe/Oslo")
+	if err != nil {
+		t.Skip(err)
+	}
+	runs := parseAptHistory([]byte("Start-Date: 2026-11-23  06:08:12\nUpgrade: a:amd64 (1, 2)\n"), oslo)
+	if len(runs) != 1 || !runs[0].Started.Equal(time.Date(2026, 11, 23, 5, 8, 12, 0, time.UTC)) {
+		t.Errorf("runs %+v", runs)
+	}
+}

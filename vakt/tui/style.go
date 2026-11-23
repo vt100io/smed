@@ -52,6 +52,14 @@ func (l level) style() lipgloss.Style {
 	return styleAccent
 }
 
+// textStyle is for words rather than graphs: plain when all is well.
+func (l level) textStyle() lipgloss.Style {
+	if l == fine {
+		return styleText
+	}
+	return l.style()
+}
+
 // The thresholds live here, in the control center, not on the machines:
 // machines report facts, the viewer decides what is worth your attention.
 func diskLevel(p float64) level {

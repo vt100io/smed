@@ -206,3 +206,116 @@ func TestAgo(t *testing.T) {
 		}
 	}
 }
+
+func withPackages(mc vakt.Machine, reboot bool, runs ...machine.PackageRun) vakt.Machine {
+	mc.Report.Packages = runs
+	if reboot {
+		mc.Report.Reboot = machine.Reboot{Required: true, Packages: []string{"linux-image-6.12.118"}}
+	}
+	return mc
+}
+
+// Night upgrades come as a dozen apt runs a minute apart: one change.
+func nightly(at time.Time) []machine.PackageRun {
+	u := "/usr/bin/unattended-upgrade"
+	return []machine.PackageRun{ // newest first, as the responder sends them
+		{Started: at.Add(11 * time.Second), Command: u, Removed: []machine.Package{{Name: "linux-image-6.12.117", From: "6.12.117-1"}}},
+		{Started: at.Add(time.Second), Command: u,
+			Installed: []machine.Package{{Name: "linux-image-6.12.118", To: "6.12.118-1"}},
+			Upgraded:  []machine.Package{{Name: "linux-image-cloud-amd64", From: "6.12.117-1", To: "6.12.118-1"}}},
+		{Started: at, Command: u, Upgraded: []machine.Package{{Name: "libk5crypto3", From: "1.21.3-5+deb13u1", To: "1.21.3-5+deb13u2"}}},
+	}
+}
+
+func TestChanges(t *testing.T) {
+	jq := machine.PackageRun{Started: t0.Add(-3 * 24 * time.Hour), Command: "apt install jq", RequestedBy: "stianh",
+		Installed: []machine.Package{{Name: "jq", To: "1.7.1-6"}}}
+	inv := vakt.Inventory{AskedAt: t0, Machines: []vakt.Machine{
+		withPackages(withApps(healthy("vt100", 2, 7, 6), app("vt100", true, "live")), false, append(nightly(t0.Add(-3*time.Hour)), jq)...),
+	}}
+	cs := changesOf(inv)
+	// The nightly runs, the deploy 2h ago and the one 2 days before, jq.
+	if len(cs) != 4 {
+		for _, c := range cs {
+			t.Log(c.at, c.short)
+		}
+		t.Fatalf("%d changes", len(cs))
+	}
+	if cs[0].short != "deploy vt100" || cs[1].short != "4 packages" || cs[3].short != "1 package" {
+		t.Errorf("order: %q %q %q", cs[0].short, cs[1].short, cs[3].short)
+	}
+
+	m := model(inv)
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "Nothing needs you.") || !strings.Contains(v, "3h ago   4 packages") {
+		t.Errorf("changes ask for attention, or aren't listed:\n%s", v)
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("4")})
+	next, _ = next.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(Model)
+	if m.focus != panelChanges || m.changeSel != 1 {
+		t.Fatalf("focus %d changeSel %d", m.focus, m.changeSel)
+	}
+	checkFits(t, m)
+	v := ansi.Strip(m.View())
+	for _, s := range []string{
+		"TODAY", "deploy vt100 9463b1f live · CI ✓",
+		"packages 2 upgraded · 1 installed · 1 removed", "by unattended-upgrade",
+		"↑ linux-image-cloud-amd64 6.12.117-1 → 6.12.118-1", "+ linux-image-6.12.118 6.12.118-1", "− linux-image-6.12.117 6.12.117-1",
+		"packages 1 installed · apt install jq by stianh",
+	} {
+		if !strings.Contains(v, s) {
+			t.Errorf("timeline lacks %q:\n%s", s, v)
+		}
+	}
+	if strings.Contains(v, "by stianh@github from elcap") {
+		t.Error("an unselected change is opened")
+	}
+}
+
+// The timeline scrolls so the selected change stays in view.
+func TestChangesScroll(t *testing.T) {
+	var runs []machine.PackageRun
+	for i := range 30 {
+		runs = append(runs, machine.PackageRun{Started: t0.Add(-time.Duration(i) * time.Hour), Command: "apt install x" + string(rune('a'+i)),
+			Installed: []machine.Package{{Name: "x", To: "1"}}})
+	}
+	m := model(vakt.Inventory{AskedAt: t0, Machines: []vakt.Machine{withPackages(healthy("vt100", 2, 7, 6), false, runs...)}})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("4")})
+	for range 29 {
+		next, _ = next.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	m = next.(Model)
+	checkFits(t, m)
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "▸· 05:00 packages 1 installed · apt install x~") || !strings.Contains(v, "▸29h ago  1 package") {
+		t.Errorf("the last change is out of view:\n%s", v)
+	}
+}
+
+func TestRebootAndFailedApt(t *testing.T) {
+	runs := nightly(t0.Add(-time.Hour))
+	runs[0].Error = "Sub-process /usr/bin/dpkg returned an error code (1)"
+	inv := vakt.Inventory{AskedAt: t0, Machines: []vakt.Machine{withPackages(healthy("vt100", 2, 7, 6), true, runs...)}}
+	a := attention(inv)
+	if len(a) != 2 || a[0].level != alarm || a[1].level != notice {
+		t.Fatalf("attention %+v", a)
+	}
+	v := ansi.Strip(model(inv).View())
+	for _, s := range []string{"apt failed: Sub-process", "waits for a reboot for linux-image-6.12.118"} {
+		if !strings.Contains(v, s) {
+			t.Errorf("overview lacks %q:\n%s", s, v)
+		}
+	}
+	// A failure apt got past since is history, not a problem.
+	runs = append([]machine.PackageRun{{Started: t0, Command: "apt upgrade", Upgraded: []machine.Package{{Name: "a", From: "1", To: "2"}}}}, runs...)
+	if a := attention(vakt.Inventory{Machines: []vakt.Machine{withPackages(healthy("vt100", 2, 7, 6), false, runs...)}}); len(a) != 0 {
+		t.Errorf("an old apt failure needs you: %+v", a)
+	}
+}
+
+func TestCommand(t *testing.T) {
+	for in, want := range map[string]string{"/usr/bin/unattended-upgrade": "unattended-upgrade", "apt install jq": "apt install jq", "": "apt"} {
+		if got := command(in); got != want {
+			t.Errorf("command(%q) = %q", in, got)
+		}
+	}
+}

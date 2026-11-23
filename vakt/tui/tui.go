@@ -72,8 +72,12 @@ type Model struct {
 	focus  int
 	sel    int // the selected machine in the Machines panel
 	appSel int // the selected app in the Services panel
-	width  int
-	height int
+	// changeSel is the selected change in the Changes panel. It counts
+	// from the newest, so it moves when something new happens: the
+	// timeline is about now.
+	changeSel int
+	width     int
+	height    int
 }
 
 // New returns a control center that asks with ask.
@@ -116,6 +120,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.record(msg.inv)
 			m.sel = min(m.sel, max(0, len(m.inv.Machines)-1))
 			m.appSel = min(m.appSel, max(0, len(m.apps())-1))
+			m.changeSel = min(m.changeSel, max(0, len(changesOf(m.inv))-1))
 		}
 	case tickMsg:
 		if !m.asking && m.asked && m.now().Sub(m.inv.AskedAt) >= Every {
@@ -140,19 +145,11 @@ func (m Model) key(k string) (tea.Model, tea.Cmd) {
 	case "1", "2", "3", "4":
 		m.focus = int(k[0] - '1')
 	case "down", "j":
-		if m.focus == panelServices {
-			m.appSel = min(m.appSel+1, max(0, len(m.apps())-1))
-			break
-		}
-		m.focus = panelMachines
-		m.sel = min(m.sel+1, max(0, len(m.inv.Machines)-1))
+		sel, n := m.list()
+		*sel = min(*sel+1, max(0, n-1))
 	case "up", "k":
-		if m.focus == panelServices {
-			m.appSel = max(m.appSel-1, 0)
-			break
-		}
-		m.focus = panelMachines
-		m.sel = max(m.sel-1, 0)
+		sel, _ := m.list()
+		*sel = max(*sel-1, 0)
 	case "r":
 		if !m.asking {
 			m.asking = true
@@ -160,6 +157,19 @@ func (m Model) key(k string) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// list is the selection ↑↓ moves and how many it chooses from. Services
+// and Changes have their own; from Status, the arrows go to the machines.
+func (m *Model) list() (*int, int) {
+	switch m.focus {
+	case panelServices:
+		return &m.appSel, len(m.apps())
+	case panelChanges:
+		return &m.changeSel, len(changesOf(m.inv))
+	}
+	m.focus = panelMachines
+	return &m.sel, len(m.inv.Machines)
 }
 
 // record keeps each machine's CPU and memory, for the graphs.

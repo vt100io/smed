@@ -44,6 +44,10 @@ type Report struct {
 	// fields don't change what the old ones mean, and an older responder
 	// simply doesn't send them.
 	Apps []App `json:"apps"`
+	// Packages is what apt did, newest first, and Reboot whether the
+	// machine waits for one. Added without a bump, like Apps.
+	Packages []PackageRun `json:"packages"`
+	Reboot   Reboot       `json:"reboot"`
 }
 
 type Memory struct {
@@ -128,6 +132,8 @@ func (r Reader) Read() (Report, error) {
 		})
 	}
 	rep.Apps = r.apps()
+	rep.Packages = r.packageRuns()
+	rep.Reboot = r.reboot()
 	return rep, nil
 }
 

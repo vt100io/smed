@@ -12,13 +12,23 @@ import (
 	"github.com/vt100io/smed/vakt/machine"
 )
 
-const leftWidth = 30
+const (
+	leftWidth      = 30
+	maxServiceRows = 8
+	maxChangeRows  = 6
+)
+
+// window keeps n lines of a list, scrolled so line sel is among them.
+func window(lines []string, sel, n int) []string {
+	start := max(0, min(sel-n+1, len(lines)-n))
+	return lines[start:min(len(lines), start+n)]
+}
 
 func (m Model) View() string {
 	w, h := max(m.width, 60), max(m.height, 16)
 	body := h - 2 // header and footer
 	left := m.left(body)
-	right := box(m.rightTitle(), m.right(w-leftWidth-4), w-leftWidth, body, false)
+	right := box(m.rightTitle(), m.right(w-leftWidth-4, body-2), w-leftWidth, body, false)
 	rows := make([]string, 0, h)
 	rows = append(rows, m.header(w))
 	for i := range body {
@@ -79,11 +89,15 @@ func (m Model) left(height int) []string {
 	if len(services) == 0 {
 		services = []string{styleMuted.Render("no apps from unit yet")}
 	}
-	changes := []string{styleDim.Render("next: commits, deploys,"), styleDim.Render("package upgrades")}
+	changes := m.changeLines(changesOf(m.inv))
 
-	// Services grows with the apps, up to a point; Machines takes the rest.
-	servicesHeight := min(max(len(services), 2), 8) + 2
-	fixed := 4 + servicesHeight + 4
+	// Services and Changes grow with what they list, up to a point;
+	// Machines takes the rest.
+	services = window(services, m.appSel, maxServiceRows)
+	servicesHeight := min(max(len(services), 2), maxServiceRows) + 2
+	changes = window(changes, m.changeSel, maxChangeRows)
+	changesHeight := min(max(len(changes), 2), maxChangeRows) + 2
+	fixed := 4 + servicesHeight + changesHeight
 	var machines []string
 	for i, mc := range m.inv.Machines {
 		// The selection is a mark and a bold name, not a background: a
@@ -106,7 +120,7 @@ func (m Model) left(height int) []string {
 	out = append(out, box("[1] Status", status, leftWidth, 4, m.focus == panelStatus)...)
 	out = append(out, box("[2] Services", services, leftWidth, servicesHeight, m.focus == panelServices)...)
 	out = append(out, box("[3] Machines", machines, leftWidth, height-fixed, m.focus == panelMachines)...)
-	out = append(out, box("[4] Changes", changes, leftWidth, 4, m.focus == panelChanges)...)
+	out = append(out, box("[4] Changes", changes, leftWidth, changesHeight, m.focus == panelChanges)...)
 	return out
 }
 
@@ -128,7 +142,7 @@ func (m Model) rightTitle() string {
 	return "Overview"
 }
 
-func (m Model) right(w int) []string {
+func (m Model) right(w, h int) []string {
 	switch m.focus {
 	case panelMachines:
 		if mc, ok := m.selected(); ok {
@@ -140,12 +154,7 @@ func (m Model) right(w int) []string {
 		}
 		return []string{styleMuted.Render("No apps from unit on the machines that answered.")}
 	case panelChanges:
-		return []string{
-			styleMuted.Render("Has something changed? Commits, deploys and package upgrades on one"),
-			styleMuted.Render("timeline, newest first."),
-			"",
-			styleDim.Render("Comes with deploy records, smed's apply records and GitHub."),
-		}
+		return m.changesScreen(changesOf(m.inv), h)
 	}
 	return m.overview(w)
 }
@@ -219,8 +228,11 @@ func (m Model) machine(mc vakt.Machine, w int) []string {
 	out = append(out,
 		styleName.Render(mc.Name)+styleMuted.Render(fmt.Sprintf(" · %s · %s · %d CPUs · %s · up %s", tags, r.OS, r.CPUs, gib(r.Memory.TotalBytes), upFor(r.Uptime))),
 		styleMuted.Render(decl+" · kernel "+r.Kernel),
-		"",
 	)
+	if r.Reboot.Required {
+		out = append(out, styleWarn.Render("waits for a reboot"+rebootFor(r.Reboot)))
+	}
+	out = append(out, "")
 	h := m.hist[mc.Name]
 	if h == nil {
 		h = &history{}
@@ -303,6 +315,14 @@ func attention(inv vakt.Inventory) items {
 				if l, why := appLevel(a); l > fine {
 					out = append(out, item{l, mc.Name, why})
 				}
+			}
+			if r.Reboot.Required {
+				out = append(out, item{notice, mc.Name, "waits for a reboot" + rebootFor(r.Reboot)})
+			}
+			// Only the newest run: an old failure that apt got past since
+			// is history, and the timeline keeps it.
+			if len(r.Packages) > 0 && r.Packages[0].Error != "" {
+				out = append(out, item{alarm, mc.Name, "apt failed: " + r.Packages[0].Error})
 			}
 		}
 	}
@@ -436,4 +456,12 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// rebootFor says what asked for the reboot: "for linux-image-6.12.118…".
+func rebootFor(r machine.Reboot) string {
+	if len(r.Packages) == 0 {
+		return ""
+	}
+	return " for " + strings.Join(r.Packages, ", ")
 }
