@@ -1,10 +1,11 @@
-// vakt asks every tagged machine in the tailnet what it looks like right
-// now, and prints the answers.
+// vakt is the control center for the tailnet: it asks every tagged machine
+// what it looks like right now, every few seconds, in a terminal UI.
 //
-//	vakt
+//	vakt          # the control center
+//	vakt -text    # the inventory as a table, once
 //
 // On its own it only knows the tailnet. To compare with what you declared,
-// call vakt.Ask from your fleet program with your HostSpecs, the way
+// call tui.Main from your fleet program with your HostSpecs, the way
 // vt100-server does with `go run . vakt`.
 package main
 
@@ -16,17 +17,13 @@ import (
 
 	"github.com/vt100io/smed/tailnet"
 	"github.com/vt100io/smed/vakt"
+	"github.com/vt100io/smed/vakt/tui"
 )
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	inv, err := vakt.Ask(ctx, tailnet.LocalDaemon(), vakt.Fleet{})
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "vakt:", err)
-		os.Exit(1)
-	}
-	if err := inv.WriteText(os.Stdout); err != nil {
+	if err := tui.Main(ctx, tailnet.LocalDaemon(), vakt.Fleet{}, os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "vakt:", err)
 		os.Exit(1)
 	}
