@@ -136,7 +136,7 @@ func TestApps(t *testing.T) {
 		t.Errorf("domains %q", vt.Domains)
 	}
 	// Newest first; the damaged line and the uninstalled app don't leak in.
-	if len(vt.Deploys) != 2 || vt.Deploys[0].Version != "9463b1f" || vt.Deploys[0].Previous != "4e30d97" || !vt.Deploys[0].SameAsCI {
+	if len(vt.Deploys) != 2 || vt.Deploys[0].Version != "9463b1f" || vt.Deploys[0].Previous != "4e30d97" || !vt.Deploys[0].SameAsCI || vt.Deploys[0].SHA256 != "5f1a9c0e" {
 		t.Errorf("deploys %+v", vt.Deploys)
 	}
 }

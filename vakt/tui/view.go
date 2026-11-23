@@ -67,7 +67,7 @@ func (m Model) footer(w int) string {
 
 // left stacks the four panels; Machines takes the height the others leave.
 func (m Model) left(height int) []string {
-	attn := attention(m.inv)
+	attn := m.attention()
 	status := []string{styleOK.Render("● all quiet")}
 	switch {
 	case !m.asked:
@@ -84,7 +84,7 @@ func (m Model) left(height int) []string {
 		if m.focus == panelServices && i == m.appSel {
 			mark, name = styleAccent.Render("▸"), styleName.Render(fitLeft(a.app.Name, 11))
 		}
-		services = append(services, mark+appMark(a.app)+" "+name+" "+styleMuted.Render(a.machine))
+		services = append(services, mark+appMark(a.app, m.sec().of(a.app), m.now())+" "+name+" "+styleMuted.Render(a.machine))
 	}
 	if len(services) == 0 {
 		services = []string{styleMuted.Render("no apps from unit yet")}
@@ -150,7 +150,7 @@ func (m Model) right(w, h int) []string {
 		}
 	case panelServices:
 		if a, ok := m.selectedApp(); ok {
-			return appScreen(a)
+			return appScreen(a, m.pcView(), m.now())
 		}
 		return []string{styleMuted.Render("No apps from unit on the machines that answered.")}
 	case panelChanges:
@@ -165,7 +165,7 @@ func (m Model) overview(w int) []string {
 		return []string{styleMuted.Render("Asking every machine…")}
 	}
 	var out []string
-	attn := attention(m.inv)
+	attn := m.attention()
 	if len(attn) == 0 {
 		out = append(out, styleOK.Render("Nothing needs you."))
 	} else {
@@ -250,7 +250,7 @@ func (m Model) machine(mc vakt.Machine, w int) []string {
 		out = append(out, styleText.Render(fitLeft(d.Mount, 12))+bar(d.UsedPercent, 20, diskLevel(d.UsedPercent))+pct(d.UsedPercent, diskLevel(d.UsedPercent))+
 			styleMuted.Render(fmt.Sprintf("   %s free of %s", gib(d.FreeBytes), gib(d.TotalBytes))))
 	}
-	return append(out, appLines(r)...)
+	return append(out, appLines(r, m.sec(), m.now())...)
 }
 
 func (m Model) selected() (vakt.Machine, bool) {
@@ -284,8 +284,18 @@ func (i item) mark() string {
 	return "!"
 }
 
-func attention(inv vakt.Inventory) items {
-	var out items
+// attention is what m asks of you, Punchcard included.
+func (m Model) attention() items {
+	var extra []item
+	if m.pcErr != nil {
+		host, _, _ := strings.Cut(m.pcAddr, ":")
+		extra = append(extra, item{notice, host, "Punchcard didn't answer: " + m.pcErr.Error()})
+	}
+	return attention(m.inv, m.sec(), m.now(), extra...)
+}
+
+func attention(inv vakt.Inventory, sec secFunc, now time.Time, extra ...item) items {
+	out := items(extra)
 	for _, mc := range inv.Machines {
 		declared := len(mc.Declared) > 0
 		switch mc.State {
@@ -312,7 +322,7 @@ func attention(inv vakt.Inventory) items {
 				out = append(out, item{l, mc.Name, fmt.Sprintf("memory %.0f%% used", r.Memory.UsedPercent)})
 			}
 			for _, a := range r.Apps {
-				if l, why := appLevel(a); l > fine {
+				if l, why := appLevel(a, sec.of(a), now); l > fine {
 					out = append(out, item{l, mc.Name, why})
 				}
 			}

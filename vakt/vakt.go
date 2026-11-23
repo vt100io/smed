@@ -29,6 +29,9 @@ import (
 // as it is, with nothing to compare against.
 type Fleet struct {
 	Hosts []*smed.HostSpec
+	// Punchcard is where Punchcard serves builds and audits on the
+	// tailnet, as "machine:port": "vt100:8081". Empty means no Punchcard.
+	Punchcard string
 }
 
 // State is what vakt learned about one machine.

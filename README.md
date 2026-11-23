@@ -205,6 +205,8 @@ curl vt100:7979 | jq   # load, CPU, memory, disks, uptime, OS: one versioned JSO
 
 `cmd/vakt-responder` is the binary and `vakt/machine` reads the machine. It is deployed with [unit](https://github.com/vt100io/unit) from this repo's `unit.toml`, which needs unit's `allow_system_stats` to read `/proc`.
 
+With `Fleet.Punchcard` set (`"vt100:8081"`), vakt also reads [Punchcard](https://github.com/vt100io/punchcard)'s builds and vulnerability audits over the tailnet, and joins them with what each service runs. The join is by the checksum unit records for every deploy, so the audit vakt shows is of the exact binary that runs, not of the source or of `main`. A vulnerability the running code reaches is an alarm, and it says what to do: deploy the newer build that passed CI and is audited without it, or, if there's none yet, which package to bump and to what. It goes away by itself when the fix runs. Findings the code doesn't reach are listed on the service, and stay off the overview.
+
 One boundary is deliberate: the control center will know your intent, but it won't get your rights. `Plan` reads over SSH with sudo, so the node never runs it. It only compares declarations with what the responders answer.
 
 ## What makes this different

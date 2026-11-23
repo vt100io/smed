@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -84,7 +85,7 @@ func TestSaysWhatNeedsYou(t *testing.T) {
 		t.Error("an undeclared machine without a responder is listed as needing you")
 	}
 	// Worst first.
-	a := attention(inv)
+	a := attention(inv, nil, t0)
 	if len(a) != 2 || a[0].level != alarm {
 		t.Errorf("attention %+v", a)
 	}
@@ -185,7 +186,7 @@ func TestAppsThatNeedYou(t *testing.T) {
 	inv := vakt.Inventory{AskedAt: t0, Machines: []vakt.Machine{
 		withApps(healthy("vt100", 2, 7, 6), app("vt100", true, "rolled-back"), app("splash", false, "live")),
 	}}
-	a := attention(inv)
+	a := attention(inv, nil, t0)
 	if len(a) != 2 || a[0].level != alarm || a[1].level != notice {
 		t.Fatalf("attention %+v", a)
 	}
@@ -302,7 +303,7 @@ func TestRebootAndFailedApt(t *testing.T) {
 	runs := nightly(t0.Add(-time.Hour))
 	runs[0].Error = "Sub-process /usr/bin/dpkg returned an error code (1)"
 	inv := vakt.Inventory{AskedAt: t0, Machines: []vakt.Machine{withPackages(healthy("vt100", 2, 7, 6), true, runs...)}}
-	a := attention(inv)
+	a := attention(inv, nil, t0)
 	if len(a) != 2 || a[0].level != alarm || a[1].level != notice {
 		t.Fatalf("attention %+v", a)
 	}
@@ -314,7 +315,7 @@ func TestRebootAndFailedApt(t *testing.T) {
 	}
 	// A failure apt got past since is history, not a problem.
 	runs = append([]machine.PackageRun{{Started: t0, Command: "apt upgrade", Upgraded: []machine.Package{{Name: "a", From: "1", To: "2"}}}}, runs...)
-	if a := attention(vakt.Inventory{Machines: []vakt.Machine{withPackages(healthy("vt100", 2, 7, 6), false, runs...)}}); len(a) != 0 {
+	if a := attention(vakt.Inventory{Machines: []vakt.Machine{withPackages(healthy("vt100", 2, 7, 6), false, runs...)}}, nil, t0); len(a) != 0 {
 		t.Errorf("an old apt failure needs you: %+v", a)
 	}
 }
@@ -340,5 +341,132 @@ func TestRebootFor(t *testing.T) {
 		if got := rebootFor(machine.Reboot{Required: true, Packages: c.pkgs}); got != c.want {
 			t.Errorf("rebootFor(%q) = %q, want %q", c.pkgs, got, c.want)
 		}
+	}
+}
+
+// pcFleet: vt100 runs 9463b1f, whose audit has a vulnerability its code
+// reaches. fixed is the commit of a later build without it, or "" for none.
+func pcFleet(fixed string) (vakt.Inventory, vakt.Punchcard) {
+	a := app("vt100", true, "live")
+	a.Deploys[0].SHA256 = "sum-9463b1f"
+	inv := vakt.Inventory{AskedAt: t0, Machines: []vakt.Machine{withApps(healthy("vt100", 2, 7, 6), a, app("punchcard", true, "live"))}}
+	called := vakt.Finding{ID: "GO-2026-4441", Ecosystem: "Go", Package: "golang.org/x/net", Version: "v0.17.0", Fixed: "v0.45.0", Reach: "called",
+		Summary: "Infinite parsing loop in golang.org/x/net"}
+	required := vakt.Finding{ID: "GO-2024-2687", Ecosystem: "Go", Package: "golang.org/x/net", Version: "v0.17.0", Fixed: "v0.23.0", Reach: "required"}
+	pc := vakt.Punchcard{
+		Builds: []vakt.Build{{Repo: "vt100io/vt100", SHA: "9463b1f00", Event: "push", Result: "passed", Finished: t0.Add(-48 * time.Hour)}},
+		Audits: []vakt.Audit{{Repo: "vt100io/vt100", SHA: "9463b1f00", Artifact: "bin/vt100", SHA256: "sum-9463b1f", Scanner: "govulncheck v1.10.0",
+			Checked: t0.Add(-2 * time.Hour), Findings: []vakt.Finding{called, required}}},
+	}
+	if fixed != "" {
+		pc.Builds = append([]vakt.Build{{Repo: "vt100io/vt100", SHA: fixed, Event: "push", Result: "passed", Finished: t0.Add(-time.Hour)}}, pc.Builds...)
+		pc.Audits = append([]vakt.Audit{{Repo: "vt100io/vt100", SHA: fixed, Artifact: "bin/vt100", SHA256: "sum-fix", Checked: t0.Add(-time.Hour), Findings: []vakt.Finding{required}}}, pc.Audits...)
+	}
+	return inv, pc
+}
+
+func withPC(t *testing.T, inv vakt.Inventory, pc vakt.Punchcard, err error) Model {
+	t.Helper()
+	m := New(func(context.Context) (vakt.Inventory, error) { return inv, nil }).
+		WithPunchcard("vt100:8081", func(context.Context) (vakt.Punchcard, error) { return pc, err })
+	m.now = func() time.Time { return t0.Add(3 * time.Second) }
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	next, _ = next.Update(inventoryMsg{inv: inv})
+	next, _ = next.Update(punchcardMsg{pc, err})
+	return next.(Model)
+}
+
+func appView(t *testing.T, m Model, sel int) string {
+	t.Helper()
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	for range sel {
+		next, _ = next.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	checkFits(t, next.(Model))
+	return ansi.Strip(next.(Model).View())
+}
+
+// The win: a fix that passed CI and isn't deployed.
+func TestFixReadyNotDeployed(t *testing.T) {
+	inv, pc := pcFleet("a1b2c3d4")
+	m := withPC(t, inv, pc, nil)
+	v := ansi.Strip(m.View())
+	if !strings.Contains(v, "app vt100 reaches GO-2026-4441; a1b2c3d fixes it") {
+		t.Errorf("overview:\n%s", v)
+	}
+	v = appView(t, m, 1) // punchcard, then vt100
+	for _, s := range []string{
+		"SECURITY from Punchcard", "audited 2h ago · govulncheck v1.10.0 · bin/vt100 9463b1f",
+		"✗ GO-2026-4441", "golang.org/x/net v0.17.0 → v0.45.0", "Infinite parsing loop",
+		"a1b2c3d fixes it: passed CI, audited without it → unit deploy",
+		"1 more known in what it includes, not reached by its code.",
+	} {
+		if !strings.Contains(v, s) {
+			t.Errorf("app screen lacks %q:\n%s", s, v)
+		}
+	}
+}
+
+func TestNoFixYetSaysWhatToBump(t *testing.T) {
+	inv, pc := pcFleet("")
+	v := ansi.Strip(withPC(t, inv, pc, nil).View())
+	if !strings.Contains(v, "app vt100 reaches GO-2026-4441, not fixed yet") {
+		t.Errorf("overview:\n%s", v)
+	}
+	if v := appView(t, withPC(t, inv, pc, nil), 1); !strings.Contains(v, "No build without them yet: bump golang.org/x/net to v0.45.0.") {
+		t.Errorf("app screen:\n%s", v)
+	}
+}
+
+// Required-only findings, and apps Punchcard never audited, are quiet.
+func TestSecurityQuiet(t *testing.T) {
+	inv, pc := pcFleet("")
+	pc.Audits[0].Findings = pc.Audits[0].Findings[1:] // only the required one
+	m := withPC(t, inv, pc, nil)
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "Nothing needs you.") {
+		t.Errorf("not quiet:\n%s", v)
+	}
+	if v := appView(t, m, 1); !strings.Contains(v, "Nothing known that the code reaches.") {
+		t.Errorf("vt100:\n%s", v)
+	}
+	if v := appView(t, m, 0); !strings.Contains(v, "Not audited: Punchcard has no audit of this binary.") {
+		t.Errorf("punchcard:\n%s", v)
+	}
+}
+
+func TestStaleAndFailedAudits(t *testing.T) {
+	inv, pc := pcFleet("")
+	pc.Audits[0].Findings = nil
+	pc.Audits[0].Checked = t0.Add(-5 * 24 * time.Hour)
+	if a := withPC(t, inv, pc, nil).attention(); len(a) != 1 || a[0].level != notice || a[0].text != "app vt100: audited 5d ago" {
+		t.Errorf("stale: %+v", a)
+	}
+	pc.Audits[0].Checked, pc.Audits[0].Error = t0, "no network"
+	if a := withPC(t, inv, pc, nil).attention(); len(a) != 1 || a[0].text != "app vt100: its last audit failed" {
+		t.Errorf("failed: %+v", a)
+	}
+}
+
+// Punchcard down is a notice; its last answer is kept.
+func TestPunchcardDown(t *testing.T) {
+	inv, pc := pcFleet("a1b2c3d4")
+	m := withPC(t, inv, pc, nil)
+	next, _ := m.Update(punchcardMsg{err: errors.New("connection refused")})
+	m = next.(Model)
+	a := m.attention()
+	texts := []string{}
+	for _, i := range a {
+		texts = append(texts, i.text)
+	}
+	if len(a) != 2 || !strings.Contains(strings.Join(texts, "|"), "Punchcard didn't answer: connection refused") || !strings.Contains(strings.Join(texts, "|"), "fixes it") {
+		t.Errorf("%q", texts)
+	}
+}
+
+// Without a Punchcard in the fleet, there's no SECURITY section at all.
+func TestNoPunchcard(t *testing.T) {
+	inv, _ := pcFleet("")
+	if v := appView(t, model(inv), 1); strings.Contains(v, "SECURITY") {
+		t.Errorf("security without Punchcard:\n%s", v)
 	}
 }

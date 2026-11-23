@@ -45,9 +45,20 @@ func (m Model) selectedApp() (appRef, bool) {
 	return appRef{}, false
 }
 
-// appLevel is how much an app asks of you: a deploy that didn't go live is
-// an alarm, an app that doesn't run or is near its memory limit a notice.
-func appLevel(a machine.App) (level, string) {
+// appLevel is how much an app asks of you, the worst of how it runs and
+// what's known about its vulnerabilities.
+func appLevel(a machine.App, s *vakt.Security, now time.Time) (level, string) {
+	l, why := runLevel(a)
+	if sl, swhy := securityLevel(a, s, now); sl > l {
+		return sl, swhy
+	}
+	return l, why
+}
+
+// runLevel is how much running an app asks of you: a deploy that didn't
+// go live is an alarm, an app that doesn't run or is near its memory limit
+// a notice.
+func runLevel(a machine.App) (level, string) {
 	if len(a.Deploys) > 0 {
 		switch d := a.Deploys[0]; d.Result {
 		case "live":
@@ -66,8 +77,8 @@ func appLevel(a machine.App) (level, string) {
 	return fine, ""
 }
 
-func appMark(a machine.App) string {
-	switch l, _ := appLevel(a); l {
+func appMark(a machine.App, s *vakt.Security, now time.Time) string {
+	switch l, _ := appLevel(a, s, now); l {
 	case alarm:
 		return styleBad.Render("✗")
 	case notice:
@@ -76,8 +87,9 @@ func appMark(a machine.App) string {
 	return styleOK.Render("✓")
 }
 
-// appScreen is one app: what runs, how it got there, and what it uses.
-func appScreen(r appRef) []string {
+// appScreen is one app: what runs, how it got there, what it uses, and,
+// with Punchcard, what's known to be vulnerable in it.
+func appScreen(r appRef, pc pcView, now time.Time) []string {
 	a := r.app
 	state := styleOK.Render("running")
 	if !a.Running {
@@ -104,7 +116,8 @@ func appScreen(r appRef) []string {
 	where = append(where, mem, fmt.Sprintf("%d tasks", a.Tasks))
 	out = append(out, styleMuted.Render(strings.Join(where, " · ")))
 
-	if l, why := appLevel(a); l > fine {
+	s := pc.sec.of(a)
+	if l, why := appLevel(a, s, now); l > fine {
 		out = append(out, "", l.style().Render(why))
 	}
 
@@ -122,6 +135,10 @@ func appScreen(r appRef) []string {
 		if d.Error != "" {
 			out = append(out, styleBad.Render(d.Error))
 		}
+	}
+
+	if pc.on {
+		out = append(out, securityLines(a, s, pc.err, now)...)
 	}
 
 	if len(a.Deploys) > 1 {
@@ -142,13 +159,13 @@ func appScreen(r appRef) []string {
 }
 
 // appLines is the APPS section of a machine's screen.
-func appLines(r *machine.Report) []string {
+func appLines(r *machine.Report, sec secFunc, now time.Time) []string {
 	if len(r.Apps) == 0 {
 		return nil
 	}
 	out := []string{"", styleHeading.Render("APPS") + styleMuted.Render(" from unit")}
 	for _, a := range r.Apps {
-		line := appMark(a) + " " + styleText.Render(fitLeft(a.Name, 12)) + styleMuted.Render(fitLeft(a.Release, 9))
+		line := appMark(a, sec.of(a), now) + " " + styleText.Render(fitLeft(a.Name, 12)) + styleMuted.Render(fitLeft(a.Release, 9))
 		if len(a.Deploys) > 0 {
 			d := a.Deploys[0]
 			line += resultText(d.Result) + styleMuted.Render(" · "+ago(time.Since(d.Finished))+" · ") + binaryText(d)

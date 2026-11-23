@@ -32,7 +32,8 @@ type App struct {
 type Deploy struct {
 	Version  string    `json:"version"`
 	Previous string    `json:"previous,omitempty"`
-	CI       string    `json:"ci,omitempty"` // the CI check's state, or "skipped"
+	SHA256   string    `json:"sha256,omitempty"` // of the binary shipped: what an audit is matched by
+	CI       string    `json:"ci,omitempty"`     // the CI check's state, or "skipped"
 	SameAsCI bool      `json:"same_as_ci,omitempty"`
 	Who      string    `json:"who"`
 	From     string    `json:"from,omitempty"`

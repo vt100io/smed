@@ -18,8 +18,12 @@ import (
 	"github.com/vt100io/smed/vakt"
 )
 
-// Every is how often the machines are asked.
-const Every = 5 * time.Second
+// Every is how often the machines are asked, and PunchcardEvery how often
+// Punchcard: builds and audits change by the hour, not the second.
+const (
+	Every          = 5 * time.Second
+	PunchcardEvery = time.Minute
+)
 
 // Main runs the control center in a terminal, and prints the plain
 // inventory table otherwise, or with -text. A fleet program needs one line:
@@ -27,6 +31,12 @@ const Every = 5 * time.Second
 //	tui.Main(ctx, tailnet.LocalDaemon(), vakt.Fleet{Hosts: hosts}, args)
 func Main(ctx context.Context, tn tailnet.Tailnet, fleet vakt.Fleet, args []string) error {
 	ask := func(ctx context.Context) (vakt.Inventory, error) { return vakt.Ask(ctx, tn, fleet) }
+	m := New(ask)
+	if fleet.Punchcard != "" {
+		m = m.WithPunchcard(fleet.Punchcard, func(ctx context.Context) (vakt.Punchcard, error) {
+			return vakt.AskPunchcard(ctx, tn, fleet.Punchcard)
+		})
+	}
 	if slices.Contains(args, "-text") || !isTerminal(os.Stdout) {
 		inv, err := ask(ctx)
 		if err != nil {
@@ -34,7 +44,7 @@ func Main(ctx context.Context, tn tailnet.Tailnet, fleet vakt.Fleet, args []stri
 		}
 		return inv.WriteText(os.Stdout)
 	}
-	_, err := tea.NewProgram(New(ask), tea.WithAltScreen(), tea.WithContext(ctx)).Run()
+	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
 	return err
 }
 
@@ -47,8 +57,11 @@ func isTerminal(w io.Writer) bool {
 	return err == nil && st.Mode()&os.ModeCharDevice != 0
 }
 
-// Asker asks the fleet once.
-type Asker func(ctx context.Context) (vakt.Inventory, error)
+// Asker asks the fleet once, and PunchcardAsker asks Punchcard once.
+type (
+	Asker          func(ctx context.Context) (vakt.Inventory, error)
+	PunchcardAsker func(ctx context.Context) (vakt.Punchcard, error)
+)
 
 // Panels on the left, in order; 1-4 jump to them.
 const (
@@ -69,6 +82,15 @@ type Model struct {
 	asking bool
 	hist   map[string]*history
 
+	// Punchcard, when the fleet has one. pc is its last answer; it's kept
+	// when a later ask fails, and pcErr says that one failed.
+	askPC    PunchcardAsker
+	pcAddr   string
+	pc       *vakt.Punchcard
+	pcErr    error
+	pcAt     time.Time // when Punchcard last answered or failed
+	pcAsking bool
+
 	focus  int
 	sel    int // the selected machine in the Machines panel
 	appSel int // the selected app in the Services panel
@@ -85,6 +107,38 @@ func New(ask Asker) Model {
 	return Model{ask: ask, now: time.Now, hist: map[string]*history{}, focus: panelStatus, width: 100, height: 30}
 }
 
+// WithPunchcard has m ask Punchcard at addr too, every PunchcardEvery.
+func (m Model) WithPunchcard(addr string, ask PunchcardAsker) Model {
+	m.askPC, m.pcAddr = ask, addr
+	return m
+}
+
+// pcView is what an app's screen needs to know about Punchcard.
+type pcView struct {
+	on  bool // the fleet has a Punchcard
+	sec secFunc
+	err error
+}
+
+func (m Model) pcView() pcView { return pcView{m.askPC != nil, m.sec(), m.pcErr} }
+
+type punchcardMsg struct {
+	pc  vakt.Punchcard
+	err error
+}
+
+func (m Model) askPCCmd() tea.Cmd {
+	if m.askPC == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		pc, err := m.askPC(ctx)
+		return punchcardMsg{pc, err}
+	}
+}
+
 type inventoryMsg struct {
 	inv vakt.Inventory
 	err error
@@ -92,7 +146,7 @@ type inventoryMsg struct {
 
 type tickMsg time.Time
 
-func (m Model) Init() tea.Cmd { return tea.Batch(m.askCmd(), tick()) }
+func (m Model) Init() tea.Cmd { return tea.Batch(m.askCmd(), m.askPCCmd(), tick()) }
 
 func (m Model) askCmd() tea.Cmd {
 	return func() tea.Msg {
@@ -122,12 +176,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.appSel = min(m.appSel, max(0, len(m.apps())-1))
 			m.changeSel = min(m.changeSel, max(0, len(changesOf(m.inv))-1))
 		}
+	case punchcardMsg:
+		m.pcAsking, m.pcAt, m.pcErr = false, m.now(), msg.err
+		if msg.err == nil {
+			m.pc = &msg.pc
+			m.appSel = min(m.appSel, max(0, len(m.apps())-1))
+		}
 	case tickMsg:
+		cmds := []tea.Cmd{tick()}
 		if !m.asking && m.asked && m.now().Sub(m.inv.AskedAt) >= Every {
 			m.asking = true
-			return m, tea.Batch(m.askCmd(), tick())
+			cmds = append(cmds, m.askCmd())
 		}
-		return m, tick()
+		if m.askPC != nil && !m.pcAsking && !m.pcAt.IsZero() && m.now().Sub(m.pcAt) >= PunchcardEvery {
+			m.pcAsking = true
+			cmds = append(cmds, m.askPCCmd())
+		}
+		return m, tea.Batch(cmds...)
 	case tea.KeyMsg:
 		return m.key(msg.String())
 	}
@@ -151,10 +216,16 @@ func (m Model) key(k string) (tea.Model, tea.Cmd) {
 		sel, _ := m.list()
 		*sel = max(*sel-1, 0)
 	case "r":
+		var cmds []tea.Cmd
 		if !m.asking {
 			m.asking = true
-			return m, m.askCmd()
+			cmds = append(cmds, m.askCmd())
 		}
+		if m.askPC != nil && !m.pcAsking {
+			m.pcAsking = true
+			cmds = append(cmds, m.askPCCmd())
+		}
+		return m, tea.Batch(cmds...)
 	}
 	return m, nil
 }
