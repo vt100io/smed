@@ -266,3 +266,95 @@ func TestDefaultApplyDisableUsesForce(t *testing.T) {
 		t.Fatalf("got command %q, want 'ufw --force disable'", r.gotCommand)
 	}
 }
+
+// Rows as ufw prints them: built with its own "%-26s %-12s%-26s" from
+// backend_iptables.py. A plain inbound rule's direction is blank, so the
+// action is "ALLOW ".
+const interfaceStatus = `Status: active
+
+To                         Action      From
+--                         ------      ----
+Anywhere on tailscale0     ALLOW       Anywhere                  
+Anywhere                   ALLOW       100.64.0.0/10             
+5432 on tailscale0         DENY        10.0.0.0/8                
+22/tcp on tailscale0       ALLOW       Anywhere                  
+Anywhere (v6) on tailscale0 ALLOW       Anywhere (v6)             
+80/tcp                     ALLOW OUT   Anywhere                   (out)`
+
+func exists(t *testing.T, r Rule, status string) bool {
+	t.Helper()
+	got, err := r.Read(context.Background(), scriptedRunner{out: status})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got.(ruleState).Exists
+}
+
+func TestRuleReadsInterfaceAndPortlessRules(t *testing.T) {
+	for _, c := range []struct {
+		r    Rule
+		want bool
+	}{
+		{Rule{Allow: true, In: "tailscale0"}, true},
+		{Rule{Allow: true, From: "100.64.0.0/10"}, true},
+		{Rule{Allow: false, In: "tailscale0", Port: "5432", From: "10.0.0.0/8"}, true},
+		{Rule{Allow: true, In: "tailscale0", Port: "22", Proto: "tcp"}, true},
+		{Rule{Allow: true, In: "eth0"}, false},
+		{Rule{Allow: true, From: "10.0.0.0/8"}, false},
+		// The prefix bug: the rule over Tailscale only is not the one for
+		// every interface.
+		{Rule{Allow: true, Port: "22", Proto: "tcp"}, false},
+		// Nor is an outbound rule an inbound one.
+		{Rule{Allow: true, Port: "80", Proto: "tcp"}, false},
+	} {
+		if got := exists(t, c.r, interfaceStatus); got != c.want {
+			t.Errorf("%+v: exists %v, want %v", c.r, got, c.want)
+		}
+	}
+}
+
+func TestRuleCommands(t *testing.T) {
+	for _, c := range []struct {
+		r    Rule
+		want string
+	}{
+		// The finding: From without Port made "to any port ''".
+		{Rule{Allow: true, From: "100.64.0.0/10"}, "ufw allow from '100.64.0.0/10' 2>&1"},
+		{Rule{Allow: true, In: "tailscale0"}, "ufw allow in on 'tailscale0' 2>&1"},
+		{Rule{Allow: true, In: "tailscale0", Port: "22", Proto: "tcp"}, "ufw allow in on 'tailscale0' to any port '22' proto 'tcp' 2>&1"},
+		{Rule{Allow: false, In: "tailscale0", From: "10.0.0.0/8", Port: "5432"}, "ufw deny in on 'tailscale0' from '10.0.0.0/8' to any port '5432' 2>&1"},
+		{Rule{Allow: true, Port: "22", Proto: "tcp"}, "ufw allow '22/tcp' 2>&1"},
+	} {
+		run := &capturingRunner{}
+		if _, err := c.r.Apply(context.Background(), run, module.Change{}); err != nil {
+			t.Fatal(err)
+		}
+		if run.gotCommand != c.want {
+			t.Errorf("%+v ran %q, want %q", c.r, run.gotCommand, c.want)
+		}
+	}
+}
+
+func TestRuleChecksAtPlan(t *testing.T) {
+	for _, r := range []Rule{
+		{Allow: true},                                  // ufw allow, alone
+		{Allow: true, Proto: "tcp"},                    // a protocol of what?
+		{Allow: true, App: "OpenSSH", From: "1.2.3.4"}, // used to drop From silently
+	} {
+		if _, err := r.Diff(r.Desired(), ruleState{}); err == nil {
+			t.Errorf("%+v accepted", r)
+		}
+		run := &capturingRunner{}
+		if _, err := r.Apply(context.Background(), run, module.Change{}); err == nil || run.gotCommand != "" {
+			t.Errorf("%+v applied: %q", r, run.gotCommand)
+		}
+	}
+}
+
+func TestRuleDescribe(t *testing.T) {
+	r := Rule{Allow: true, In: "tailscale0", From: "100.64.0.0/10"}
+	change, err := r.Diff(r.Desired(), ruleState{})
+	if err != nil || change.Description != "ufw allow Anywhere on tailscale0 from 100.64.0.0/10" {
+		t.Errorf("%+v %v", change, err)
+	}
+}

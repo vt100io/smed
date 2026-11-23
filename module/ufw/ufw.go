@@ -23,21 +23,45 @@ package ufw
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/vt100io/smed/module"
 	"github.com/vt100io/smed/shellquote"
 )
 
-// Rule is a single allow/deny rule, either a port+protocol spec or a
-// named application profile (ufw app list) — App and Port/Proto are
-// mutually exclusive; set one or the other.
+// Rule is a single inbound allow/deny rule: a named application profile
+// (ufw app list), or any mix of port, source and interface. App can't be
+// mixed with the others, Proto needs a Port, and a rule must say at least
+// one thing, since a bare "ufw allow" isn't a rule:
+//
+//	Rule{Allow: true, Port: "22", Proto: "tcp"}             // ufw allow 22/tcp
+//	Rule{Allow: true, From: "100.64.0.0/10"}                // every port, from the tailnet
+//	Rule{Allow: true, In: "tailscale0"}                     // everything that comes in over Tailscale
+//	Rule{Allow: true, In: "tailscale0", Port: "5432"}       // one port, over Tailscale only
 type Rule struct {
 	Allow bool   // true = allow, false = deny
-	Port  string // e.g. "5432"; ignored if App is set
+	Port  string // e.g. "5432"; "" means every port
 	Proto string // e.g. "tcp"; "" means unspecified (matches any proto for this port)
 	From  string // source CIDR/IP; "" means "Anywhere" (ufw's own term for any source)
+	In    string // the interface it comes in on, e.g. "tailscale0"; "" means any
 	App   string // a named profile from `ufw app list`, e.g. "OpenSSH"
+}
+
+// check refuses a rule ufw would reject or misread, so Plan says so
+// rather than Apply failing on the host.
+func (r Rule) check() error {
+	switch {
+	case r.App != "" && (r.Port != "" || r.Proto != "" || r.From != "" || r.In != ""):
+		return fmt.Errorf("ufw rule %s: App can't be combined with Port, Proto, From or In", r.App)
+	case r.App != "":
+		return nil
+	case r.Proto != "" && r.Port == "":
+		return fmt.Errorf("ufw rule: Proto %s needs a Port", r.Proto)
+	case r.Port == "" && r.From == "" && r.In == "":
+		return fmt.Errorf("ufw rule: says nothing to match; set Port, From, In or App")
+	}
+	return nil
 }
 
 type ruleState struct {
@@ -61,47 +85,71 @@ func (r Rule) Read(ctx context.Context, run module.Runner) (module.State, error)
 	return ruleState{Exists: false}, nil
 }
 
-// matches is the pragmatic heuristic described in the package doc:
-// the line must carry this rule's action, and either contain
-// "(AppName)" or start with the port/proto spec, and contain the
-// expected source text somewhere.
+// row is one rule in `ufw status`: To, the action with an optional
+// direction, From, and an optional comment. ufw pads the columns with
+// spaces; To and From can hold spaces themselves ("Anywhere on
+// tailscale0", "22/tcp (OpenSSH)").
+var row = regexp.MustCompile(`^(.+?)\s+(ALLOW|DENY|REJECT|LIMIT)(?: (IN|OUT|FWD))?\s+(.+?)\s*(?:#.*)?$`)
+
+// matches reads one line of `ufw status` and says whether it is this
+// rule: same action, and the To and From columns exactly as ufw prints
+// them for it (see to and from). Exact, not a prefix: "22/tcp" must not
+// match "22/tcp on tailscale0", or the narrower rule would hide the
+// missing wider one.
 //
 // Caught against a real host: ufw prints "ALLOW IN" for a rule added
 // as a plain port/proto spec, but just "ALLOW" (no direction) for one
-// added via the "from X to any port Y" form — this module's own Apply
-// uses the latter whenever From is set, so matching on "ALLOW IN"
-// literally would never recognize the rules it had just created. This
-// module never produces an explicit OUT rule, so dropping the
-// direction suffix entirely costs nothing and matches both real forms.
+// added via the "from X to any port Y" form, so the direction is
+// optional. Outbound and routed rules are never this module's.
 func (r Rule) matches(line string) bool {
-	action := "DENY"
-	if r.Allow {
-		action = "ALLOW"
-	}
-	if !strings.Contains(line, action) {
+	m := row.FindStringSubmatch(strings.TrimSpace(line))
+	if m == nil {
 		return false
 	}
-
+	to, action, dir, from := m[1], m[2], m[3], m[4]
+	if action != r.action() || dir == "OUT" || dir == "FWD" {
+		return false
+	}
 	if r.App != "" {
-		return strings.Contains(line, "("+r.App+")")
+		return strings.Contains(to, "("+r.App+")")
 	}
+	return to == r.to() && from == r.from()
+}
 
-	spec := r.Port
-	if r.Proto != "" {
-		spec += "/" + r.Proto
+func (r Rule) action() string {
+	if r.Allow {
+		return "ALLOW"
 	}
-	if !strings.HasPrefix(strings.TrimSpace(line), spec) {
-		return false
-	}
+	return "DENY"
+}
 
-	from := r.From
-	if from == "" {
-		from = "Anywhere"
+// to is the To column ufw prints for this rule: the port, or Anywhere,
+// and the interface. From ufw's backend_iptables.py, get_status.
+func (r Rule) to() string {
+	to := "Anywhere"
+	if r.Port != "" {
+		to = r.Port
+		if r.Proto != "" {
+			to += "/" + r.Proto
+		}
 	}
-	return strings.Contains(line, from)
+	if r.In != "" {
+		to += " on " + r.In
+	}
+	return to
+}
+
+func (r Rule) from() string {
+	if r.From == "" {
+		return "Anywhere"
+	}
+	return r.From
 }
 
 func (r Rule) Diff(desired, current module.State) (module.Change, error) {
+	if err := r.check(); err != nil {
+		return module.Change{}, err
+	}
 	cur, ok := current.(ruleState)
 	if !ok {
 		return module.Change{}, fmt.Errorf("diff: current state is %T, not ufw.ruleState", current)
@@ -120,17 +168,17 @@ func (r Rule) describe() string {
 	if r.App != "" {
 		return r.App
 	}
-	spec := r.Port
-	if r.Proto != "" {
-		spec += "/" + r.Proto
-	}
+	d := r.to()
 	if r.From != "" {
-		return fmt.Sprintf("%s from %s", spec, r.From)
+		d += " from " + r.From
 	}
-	return spec
+	return d
 }
 
 func (r Rule) Apply(ctx context.Context, run module.Runner, change module.Change) (module.Result, error) {
+	if err := r.check(); err != nil {
+		return module.Result{}, err
+	}
 	out, err := run.Run(ctx, r.applyCmd())
 	if err != nil {
 		return module.Result{Output: out}, fmt.Errorf("apply ufw rule: %w", err)
@@ -139,23 +187,30 @@ func (r Rule) Apply(ctx context.Context, run module.Runner, change module.Change
 }
 
 func (r Rule) applyCmd() string {
-	action := "deny"
-	if r.Allow {
-		action = "allow"
-	}
+	action := strings.ToLower(r.action())
 	if r.App != "" {
 		return fmt.Sprintf("ufw %s %s 2>&1", action, shellquote.Quote(r.App))
 	}
-	if r.From == "" {
+	if r.From == "" && r.In == "" {
 		spec := r.Port
 		if r.Proto != "" {
 			spec += "/" + r.Proto
 		}
 		return fmt.Sprintf("ufw %s %s 2>&1", action, shellquote.Quote(spec))
 	}
-	cmd := fmt.Sprintf("ufw %s from %s to any port %s", action, shellquote.Quote(r.From), shellquote.Quote(r.Port))
-	if r.Proto != "" {
-		cmd += " proto " + shellquote.Quote(r.Proto)
+	// The full form: ufw allow [in on IF] [from X] [to any port P [proto T]].
+	cmd := "ufw " + action
+	if r.In != "" {
+		cmd += " in on " + shellquote.Quote(r.In)
+	}
+	if r.From != "" {
+		cmd += " from " + shellquote.Quote(r.From)
+	}
+	if r.Port != "" {
+		cmd += " to any port " + shellquote.Quote(r.Port)
+		if r.Proto != "" {
+			cmd += " proto " + shellquote.Quote(r.Proto)
+		}
 	}
 	return cmd + " 2>&1"
 }
