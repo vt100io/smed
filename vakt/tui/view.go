@@ -458,10 +458,24 @@ func plural(n int, one, many string) string {
 	return many
 }
 
-// rebootFor says what asked for the reboot: "for linux-image-6.12.118…".
+// rebootFor says what asked for the reboot. A new kernel is the usual
+// reason, and Debian names every kernel installed since the last boot,
+// removed ones too, so it says just that.
 func rebootFor(r machine.Reboot) string {
-	if len(r.Packages) == 0 {
+	var other []string
+	kernel := false
+	for _, p := range r.Packages {
+		if strings.HasPrefix(p, "linux-image-") {
+			kernel = true
+		} else {
+			other = append(other, p)
+		}
+	}
+	if kernel {
+		other = append([]string{"a new kernel"}, other...)
+	}
+	if len(other) == 0 {
 		return ""
 	}
-	return " for " + strings.Join(r.Packages, ", ")
+	return " for " + strings.Join(other, ", ")
 }

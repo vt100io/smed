@@ -307,7 +307,7 @@ func TestRebootAndFailedApt(t *testing.T) {
 		t.Fatalf("attention %+v", a)
 	}
 	v := ansi.Strip(model(inv).View())
-	for _, s := range []string{"apt failed: Sub-process", "waits for a reboot for linux-image-6.12.118"} {
+	for _, s := range []string{"apt failed: Sub-process", "waits for a reboot for a new kernel"} {
 		if !strings.Contains(v, s) {
 			t.Errorf("overview lacks %q:\n%s", s, v)
 		}
@@ -323,6 +323,22 @@ func TestCommand(t *testing.T) {
 	for in, want := range map[string]string{"/usr/bin/unattended-upgrade": "unattended-upgrade", "apt install jq": "apt install jq", "": "apt"} {
 		if got := command(in); got != want {
 			t.Errorf("command(%q) = %q", in, got)
+		}
+	}
+}
+
+func TestRebootFor(t *testing.T) {
+	for _, c := range []struct {
+		pkgs []string
+		want string
+	}{
+		{nil, ""},
+		{[]string{"linux-image-6.12.117+deb13-cloud-amd64", "linux-image-6.12.118+deb13-cloud-amd64"}, " for a new kernel"},
+		{[]string{"libc6", "linux-image-6.12.118"}, " for a new kernel, libc6"},
+		{[]string{"dbus"}, " for dbus"},
+	} {
+		if got := rebootFor(machine.Reboot{Required: true, Packages: c.pkgs}); got != c.want {
+			t.Errorf("rebootFor(%q) = %q, want %q", c.pkgs, got, c.want)
 		}
 	}
 }
