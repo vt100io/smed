@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,12 @@ import (
 )
 
 var t0 = time.Date(2026, 11, 23, 9, 0, 0, 0, time.UTC)
+
+// The screens show local time; the tests read the same anywhere.
+func TestMain(m *testing.M) {
+	time.Local = time.UTC
+	os.Exit(m.Run())
+}
 
 func healthy(name string, cpu, mem, disk float64) vakt.Machine {
 	return vakt.Machine{Name: name, Tags: []string{"tag:" + name}, Declared: []string{`Host("` + name + `")`}, State: vakt.Answered,
@@ -286,7 +293,7 @@ func TestChangesScroll(t *testing.T) {
 	}
 	m = next.(Model)
 	checkFits(t, m)
-	if v := ansi.Strip(m.View()); !strings.Contains(v, "▸· 05:00 packages 1 installed · apt install x~") || !strings.Contains(v, "▸29h ago  1 package") {
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "▸· 04:00 packages 1 installed · apt install x~") || !strings.Contains(v, "▸29h ago  1 package") {
 		t.Errorf("the last change is out of view:\n%s", v)
 	}
 }
