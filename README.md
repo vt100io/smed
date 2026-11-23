@@ -279,7 +279,7 @@ Deferred, not rejected — real gaps, stated rather than quietly worked around: 
 
 ## Where it stands
 
-Real today, validated against a real fleet over Tailscale — not just unit tests: inventory and transport (both backends), connection rules, sudo escalation, the full `Host`/`Tag` DSL with handlers, `Owns`/`Receipts`, rolling batches, `Plan`/`Drift`, `Explain`, the secrets package (1Password + env backends), and six modules (`file`, `apt`, `service`, `user`, `ufw`, `command`). The core transport thesis — a pushed Go binary over one multiplexed connection beats a Python-per-task round trip — was confirmed early with a small benchmark (~270-290x on a 15-host × 25-command fixture) before any of the rest of this got built on top of it; that harness lives in a separate `smed-bench` project, not here.
+Real today, validated against a real fleet over Tailscale — not just unit tests: inventory and transport (both backends), connection rules, sudo escalation, the full `Host`/`Tag` DSL with handlers, `Owns`/`Receipts`, rolling batches, `Plan`/`Drift`, `Explain`, the secrets package (1Password + env backends), and six modules (`file`, `apt`, `service`, `user`, `ufw`, `command`). `apt.Repository` adds a third-party repository the way Debian recommends today, a deb822 `.sources` file whose `Signed-By` key trusts that repository only; checked against Docker's real repository with Debian's own apt. The core transport thesis — a pushed Go binary over one multiplexed connection beats a Python-per-task round trip — was confirmed early with a small benchmark (~270-290x on a 15-host × 25-command fixture) before any of the rest of this got built on top of it; that harness lives in a separate `smed-bench` project, not here.
 
 ## Is this for you?
 
