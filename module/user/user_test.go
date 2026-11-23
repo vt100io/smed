@@ -246,3 +246,61 @@ func TestApplyOnlyPassesManagedFlags(t *testing.T) {
 		}
 	}
 }
+
+// stian is a human account in sudo, the way it looks before you add docker.
+var stian = state{Exists: true, UID: "1000", Group: "stian", Groups: []string{"sudo"}, Home: "/home/stian", Shell: "/bin/bash"}
+
+// The finding this exists for: adding yourself to docker must not take
+// you out of sudo.
+func TestMemberOfAddsAndKeepsTheRest(t *testing.T) {
+	a := Account{Name: "stian", MemberOf: []string{"docker"}}
+	change, err := a.Diff(a.Desired(), stian)
+	if err != nil || change.Action != module.Update || change.Description != "stian: add to docker" {
+		t.Fatalf("diff %+v %v", change, err)
+	}
+	r := &scriptedRunner{responses: []scriptedResponse{{}}}
+	if _, err := a.Apply(context.Background(), r, change); err != nil {
+		t.Fatal(err)
+	}
+	if r.calls[0] != "usermod -a -G 'docker' 'stian' 2>&1" {
+		t.Errorf("ran %q", r.calls[0])
+	}
+	// Once in docker, and in more groups than asked, there's nothing to do.
+	after := stian
+	after.Groups = []string{"docker", "plugdev", "sudo"}
+	if change, _ := a.Diff(a.Desired(), after); change.Action != module.NoOp {
+		t.Errorf("after: %+v", change)
+	}
+	// The primary group counts as being in it.
+	own := Account{Name: "stian", MemberOf: []string{"stian"}}
+	if change, _ := own.Diff(own.Desired(), stian); change.Action != module.NoOp {
+		t.Errorf("primary: %+v", change)
+	}
+}
+
+func TestMemberOfOnCreate(t *testing.T) {
+	a := Account{Name: "ci", MemberOf: []string{"docker", "adm"}}
+	r := &scriptedRunner{responses: []scriptedResponse{{}}}
+	if _, err := a.Apply(context.Background(), r, module.Change{Action: module.Create}); err != nil {
+		t.Fatal(err)
+	}
+	if r.calls[0] != "useradd -m -G 'adm,docker' 'ci' 2>&1" {
+		t.Errorf("ran %q", r.calls[0])
+	}
+}
+
+func TestGroupsAndMemberOfTogetherIsAnError(t *testing.T) {
+	a := Account{Name: "stian", Groups: []string{"sudo"}, MemberOf: []string{"docker"}}
+	if _, err := a.Diff(a.Desired(), stian); err == nil {
+		t.Error("both accepted")
+	}
+}
+
+// Groups still replaces, but Plan says what it takes away.
+func TestGroupsSaysWhatItRemoves(t *testing.T) {
+	a := Account{Name: "stian", Groups: []string{"docker"}}
+	change, err := a.Diff(a.Desired(), stian)
+	if err != nil || !strings.Contains(change.Description, "(removes sudo)") {
+		t.Errorf("diff %+v %v", change, err)
+	}
+}

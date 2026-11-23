@@ -32,13 +32,17 @@ type Account struct {
 	// means manage them to exactly none (usermod -G ''), removing
 	// whatever secondary groups the account currently has. This
 	// *replaces* the set rather than only adding to it — Ansible's own
-	// default (append: no) — so it's the one mode this supports; a
-	// pure "add without ever removing" mode is a cheap follow-up if
-	// it's ever actually needed, not something this silently does.
-	Groups  []string
-	Home    string // "" means use the system default (e.g. /home/<name>)
-	Shell   string // "" means use the system default
-	Comment string // GECOS field
+	// default (append: no). Groups: []string{"docker"} on your own
+	// account takes you out of sudo; Plan says "removes sudo" when it
+	// would. To add a group and leave the rest alone, use MemberOf.
+	Groups []string
+	// MemberOf is groups the account must be in; groups it's in besides
+	// these are left alone (usermod -aG). It's the one to use for "add
+	// me to docker". Setting both Groups and MemberOf is an error.
+	MemberOf []string
+	Home     string // "" means use the system default (e.g. /home/<name>)
+	Shell    string // "" means use the system default
+	Comment  string // GECOS field
 	// System, if true, creates the account with useradd -r (system
 	// account: no home directory by default) instead of useradd -m
 	// (create a home directory) — the two conventions real service
@@ -47,18 +51,21 @@ type Account struct {
 }
 
 type state struct {
-	Exists  bool
-	UID     string
-	Group   string
-	Groups  []string // supplementary groups only, normalized (sorted, deduped)
-	Home    string
-	Shell   string
-	Comment string
+	Exists bool
+	UID    string
+	Group  string
+	Groups []string // supplementary groups only, normalized (sorted, deduped)
+	// MemberOf is only ever desired, never read: the groups that must be
+	// among Groups (or be the primary group).
+	MemberOf []string
+	Home     string
+	Shell    string
+	Comment  string
 }
 
 func (a Account) Desired() module.State {
 	return state{
-		Exists: true, UID: a.UID, Group: a.Group, Groups: normalizeGroups(a.Groups),
+		Exists: true, UID: a.UID, Group: a.Group, Groups: normalizeGroups(a.Groups), MemberOf: normalizeGroups(a.MemberOf),
 		Home: a.Home, Shell: a.Shell, Comment: a.Comment,
 	}
 }
@@ -152,6 +159,10 @@ func (a Account) Diff(desired, current module.State) (module.Change, error) {
 		return module.Change{}, fmt.Errorf("diff: current state is %T, not user.state", current)
 	}
 
+	if a.Groups != nil && a.MemberOf != nil {
+		return module.Change{}, fmt.Errorf("user %s: Groups sets every group and MemberOf only adds; use one of them", a.Name)
+	}
+
 	if !cur.Exists {
 		return module.Change{Action: module.Create, Description: fmt.Sprintf("create user %s", a.Name)}, nil
 	}
@@ -164,7 +175,14 @@ func (a Account) Diff(desired, current module.State) (module.Change, error) {
 		diffs = append(diffs, fmt.Sprintf("group %s -> %s", cur.Group, d.Group))
 	}
 	if a.Groups != nil && !slices.Equal(cur.Groups, d.Groups) {
-		diffs = append(diffs, fmt.Sprintf("groups %v -> %v", cur.Groups, d.Groups))
+		diff := fmt.Sprintf("groups %v -> %v", cur.Groups, d.Groups)
+		if gone := missing(cur.Groups, d.Groups); len(gone) > 0 {
+			diff += " (removes " + strings.Join(gone, ", ") + ")"
+		}
+		diffs = append(diffs, diff)
+	}
+	if add := missing(d.MemberOf, append(slices.Clone(cur.Groups), cur.Group)); len(add) > 0 {
+		diffs = append(diffs, "add to "+strings.Join(add, ", "))
 	}
 	if d.Home != "" && cur.Home != d.Home {
 		diffs = append(diffs, fmt.Sprintf("home %s -> %s", cur.Home, d.Home))
@@ -198,7 +216,7 @@ func (a Account) Apply(ctx context.Context, r module.Runner, change module.Chang
 	} else {
 		cmd = "usermod"
 	}
-	cmd += flagArgs(a) + " " + shellquote.Quote(a.Name) + " 2>&1"
+	cmd += flagArgs(a, change.Action == module.Create) + " " + shellquote.Quote(a.Name) + " 2>&1"
 
 	out, err := r.Run(ctx, cmd)
 	if err != nil {
@@ -213,7 +231,7 @@ func (a Account) Verify(ctx context.Context, r module.Runner, desired module.Sta
 
 // flagArgs builds the useradd/usermod flags shared by Create and
 // Update — whichever attributes are managed (non-empty), nothing more.
-func flagArgs(a Account) string {
+func flagArgs(a Account, create bool) string {
 	var b strings.Builder
 	if a.UID != "" {
 		fmt.Fprintf(&b, " -u %s", shellquote.Quote(a.UID))
@@ -223,6 +241,12 @@ func flagArgs(a Account) string {
 	}
 	if a.Groups != nil {
 		fmt.Fprintf(&b, " -G %s", shellquote.Quote(strings.Join(a.Groups, ",")))
+	}
+	if len(a.MemberOf) > 0 {
+		if !create {
+			b.WriteString(" -a") // append: usermod -G alone would replace
+		}
+		fmt.Fprintf(&b, " -G %s", shellquote.Quote(strings.Join(normalizeGroups(a.MemberOf), ",")))
 	}
 	if a.Home != "" {
 		fmt.Fprintf(&b, " -d %s", shellquote.Quote(a.Home))
@@ -234,4 +258,15 @@ func flagArgs(a Account) string {
 		fmt.Fprintf(&b, " -c %s", shellquote.Quote(a.Comment))
 	}
 	return b.String()
+}
+
+// missing is what's in want but not in have.
+func missing(want, have []string) []string {
+	var out []string
+	for _, g := range want {
+		if !slices.Contains(have, g) {
+			out = append(out, g)
+		}
+	}
+	return out
 }
