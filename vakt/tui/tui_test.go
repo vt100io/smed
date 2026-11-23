@@ -195,3 +195,14 @@ func TestAppsThatNeedYou(t *testing.T) {
 		t.Errorf("machine screen lacks its apps:\n%s", v)
 	}
 }
+
+func TestAgo(t *testing.T) {
+	for d, want := range map[time.Duration]string{
+		time.Second: "just now", 21 * time.Second: "21s ago", 5 * time.Minute: "5m ago",
+		5807 * time.Minute: "4d ago", 3 * time.Hour: "3h ago", 47 * time.Hour: "47h ago",
+	} {
+		if got := ago(d); got != want {
+			t.Errorf("ago(%v) = %q, want %q", d, got, want)
+		}
+	}
+}

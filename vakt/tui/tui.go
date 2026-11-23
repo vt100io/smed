@@ -196,6 +196,10 @@ func ago(d time.Duration) string {
 		return "just now"
 	case d < time.Minute:
 		return fmt.Sprintf("%ds ago", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
 	}
-	return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 }
