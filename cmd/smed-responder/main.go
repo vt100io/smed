@@ -1,4 +1,4 @@
-// vakt-responder answers one question over HTTP: what does this machine look
+// smed-responder answers one question over HTTP: what does this machine look
 // like right now? GET / returns a machine.Report as JSON. It is read-only by
 // construction: it takes no input but the path, accepts only GET and writes
 // nothing. It runs where unit puts it, behind a systemd socket on the
@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/vt100io/smed/vakt/machine"
+	"github.com/vt100io/smed/watch/machine"
 )
 
 func main() {
@@ -42,7 +42,7 @@ func handler(r machine.Reader) http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodGet && req.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
-			http.Error(w, "vakt only answers questions", http.StatusMethodNotAllowed)
+			http.Error(w, "smed only answers questions", http.StatusMethodNotAllowed)
 			return
 		}
 		if req.URL.Path != "/" {

@@ -1,4 +1,4 @@
-package vakt
+package watch
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/vt100io/smed/vakt/machine"
+	"github.com/vt100io/smed/watch/machine"
 )
 
 // WriteText prints the inventory as a plain table: the first view, before
@@ -22,7 +22,7 @@ func (inv Inventory) WriteText(w io.Writer) error {
 			declared++
 		}
 	}
-	head := fmt.Sprintf("vakt · asked %s · %d of %d answered", inv.AskedAt.Format("15:04:05"), answered, len(inv.Machines))
+	head := fmt.Sprintf("smed watch · asked %s · %d of %d answered", inv.AskedAt.Format("15:04:05"), answered, len(inv.Machines))
 	if declared > 0 {
 		head += fmt.Sprintf(" · %d declared", declared)
 	}

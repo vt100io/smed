@@ -11,8 +11,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/vt100io/smed/vakt"
-	"github.com/vt100io/smed/vakt/machine"
+	"github.com/vt100io/smed/watch"
+	"github.com/vt100io/smed/watch/machine"
 )
 
 var t0 = time.Date(2026, 11, 23, 9, 0, 0, 0, time.UTC)
@@ -23,16 +23,16 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func healthy(name string, cpu, mem, disk float64) vakt.Machine {
-	return vakt.Machine{Name: name, Tags: []string{"tag:" + name}, Declared: []string{`Host("` + name + `")`}, State: vakt.Answered,
+func healthy(name string, cpu, mem, disk float64) watch.Machine {
+	return watch.Machine{Name: name, Tags: []string{"tag:" + name}, Declared: []string{`Host("` + name + `")`}, State: watch.Answered,
 		Report: &machine.Report{Version: 1, OS: "Debian GNU/Linux 13 (trixie)", Kernel: "6.12", CPUs: 4, Uptime: 8 * 86400,
 			CPUPercent: cpu, Load: [3]float64{0.04, 0.02, 0},
 			Memory: machine.Memory{TotalBytes: 8 << 30, AvailableBytes: 7 << 30, UsedPercent: mem},
 			Disks:  []machine.Disk{{Mount: "/", FS: "ext4", TotalBytes: 80 << 30, FreeBytes: 75 << 30, UsedPercent: disk}}}}
 }
 
-func model(inv vakt.Inventory) Model {
-	m := New(func(context.Context) (vakt.Inventory, error) { return inv, nil })
+func model(inv watch.Inventory) Model {
+	m := New(func(context.Context) (watch.Inventory, error) { return inv, nil })
 	m.now = func() time.Time { return t0.Add(3 * time.Second) }
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	next, _ = next.Update(inventoryMsg{inv: inv})
@@ -56,7 +56,7 @@ func checkFits(t *testing.T, m Model) {
 }
 
 func TestQuietWhenNothingNeedsYou(t *testing.T) {
-	m := model(vakt.Inventory{AskedAt: t0, Machines: []vakt.Machine{healthy("vt100", 2, 7, 6)}})
+	m := model(watch.Inventory{AskedAt: t0, Machines: []watch.Machine{healthy("vt100", 2, 7, 6)}})
 	checkFits(t, m)
 	v := ansi.Strip(m.View())
 	for _, s := range []string{"Nothing needs you.", "● all quiet", "asked 3s ago", "vt100", "1 machine · 1 answered"} {
@@ -67,11 +67,11 @@ func TestQuietWhenNothingNeedsYou(t *testing.T) {
 }
 
 func TestSaysWhatNeedsYou(t *testing.T) {
-	inv := vakt.Inventory{AskedAt: t0, Machines: []vakt.Machine{
+	inv := watch.Inventory{AskedAt: t0, Machines: []watch.Machine{
 		healthy("vt100", 2, 7, 6),
 		healthy("dwh", 30, 60, 94),
-		{Name: "gone", Declared: []string{`Host("gone")`}, State: vakt.Missing},
-		{Name: "web-3", Tags: []string{"tag:web"}, State: vakt.NoResponder}, // undeclared: not a problem yet
+		{Name: "gone", Declared: []string{`Host("gone")`}, State: watch.Missing},
+		{Name: "web-3", Tags: []string{"tag:web"}, State: watch.NoResponder}, // undeclared: not a problem yet
 	}}
 	m := model(inv)
 	checkFits(t, m)
@@ -92,7 +92,7 @@ func TestSaysWhatNeedsYou(t *testing.T) {
 }
 
 func TestMachineScreen(t *testing.T) {
-	m := model(vakt.Inventory{AskedAt: t0, Machines: []vakt.Machine{healthy("a", 1, 1, 1), healthy("vt100", 2, 7, 6)}})
+	m := model(watch.Inventory{AskedAt: t0, Machines: []watch.Machine{healthy("a", 1, 1, 1), healthy("vt100", 2, 7, 6)}})
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m = next.(Model)
 	if m.focus != panelMachines || m.sel != 1 {
@@ -114,9 +114,9 @@ func TestMachineScreen(t *testing.T) {
 
 // Graphs show what happened while you watched: one sample per answer.
 func TestHistoryGrows(t *testing.T) {
-	m := model(vakt.Inventory{AskedAt: t0, Machines: []vakt.Machine{healthy("vt100", 2, 7, 6)}})
+	m := model(watch.Inventory{AskedAt: t0, Machines: []watch.Machine{healthy("vt100", 2, 7, 6)}})
 	for i := range keep + 5 {
-		next, _ := m.Update(inventoryMsg{inv: vakt.Inventory{AskedAt: t0, Machines: []vakt.Machine{healthy("vt100", float64(i), 7, 6)}}})
+		next, _ := m.Update(inventoryMsg{inv: watch.Inventory{AskedAt: t0, Machines: []watch.Machine{healthy("vt100", float64(i), 7, 6)}}})
 		m = next.(Model)
 	}
 	if h := m.hist["vt100"]; len(h.cpu) != keep || h.cpu[keep-1] != keep+4 {
@@ -125,7 +125,7 @@ func TestHistoryGrows(t *testing.T) {
 }
 
 func TestSmallAndEmptyWindows(t *testing.T) {
-	m := New(func(context.Context) (vakt.Inventory, error) { return vakt.Inventory{}, nil })
+	m := New(func(context.Context) (watch.Inventory, error) { return watch.Inventory{}, nil })
 	m.now = func() time.Time { return t0 }
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 60, Height: 16})
 	checkFits(t, next.(Model)) // before the first answer
@@ -140,7 +140,7 @@ func TestSpark(t *testing.T) {
 	}
 }
 
-func withApps(mc vakt.Machine, apps ...machine.App) vakt.Machine {
+func withApps(mc watch.Machine, apps ...machine.App) watch.Machine {
 	mc.Report.Apps = apps
 	return mc
 }
@@ -156,7 +156,7 @@ func app(name string, running bool, result string) machine.App {
 }
 
 func TestServices(t *testing.T) {
-	inv := vakt.Inventory{AskedAt: t0, Machines: []vakt.Machine{
+	inv := watch.Inventory{AskedAt: t0, Machines: []watch.Machine{
 		withApps(healthy("vt100", 2, 7, 6), app("vt100", true, "live"), app("punchcard", true, "live")),
 	}}
 	m := model(inv)
@@ -183,7 +183,7 @@ func TestServices(t *testing.T) {
 }
 
 func TestAppsThatNeedYou(t *testing.T) {
-	inv := vakt.Inventory{AskedAt: t0, Machines: []vakt.Machine{
+	inv := watch.Inventory{AskedAt: t0, Machines: []watch.Machine{
 		withApps(healthy("vt100", 2, 7, 6), app("vt100", true, "rolled-back"), app("splash", false, "live")),
 	}}
 	a := attention(inv, nil, t0)
@@ -215,7 +215,7 @@ func TestAgo(t *testing.T) {
 	}
 }
 
-func withPackages(mc vakt.Machine, reboot bool, runs ...machine.PackageRun) vakt.Machine {
+func withPackages(mc watch.Machine, reboot bool, runs ...machine.PackageRun) watch.Machine {
 	mc.Report.Packages = runs
 	if reboot {
 		mc.Report.Reboot = machine.Reboot{Required: true, Packages: []string{"linux-image-6.12.118"}}
@@ -238,7 +238,7 @@ func nightly(at time.Time) []machine.PackageRun {
 func TestChanges(t *testing.T) {
 	jq := machine.PackageRun{Started: t0.Add(-3 * 24 * time.Hour), Command: "apt install jq", RequestedBy: "stianh",
 		Installed: []machine.Package{{Name: "jq", To: "1.7.1-6"}}}
-	inv := vakt.Inventory{AskedAt: t0, Machines: []vakt.Machine{
+	inv := watch.Inventory{AskedAt: t0, Machines: []watch.Machine{
 		withPackages(withApps(healthy("vt100", 2, 7, 6), app("vt100", true, "live")), false, append(nightly(t0.Add(-3*time.Hour)), jq)...),
 	}}
 	cs := changesOf(inv)
@@ -287,7 +287,7 @@ func TestChangesScroll(t *testing.T) {
 		runs = append(runs, machine.PackageRun{Started: t0.Add(-time.Duration(i) * time.Hour), Command: "apt install x" + string(rune('a'+i)),
 			Installed: []machine.Package{{Name: "x", To: "1"}}})
 	}
-	m := model(vakt.Inventory{AskedAt: t0, Machines: []vakt.Machine{withPackages(healthy("vt100", 2, 7, 6), false, runs...)}})
+	m := model(watch.Inventory{AskedAt: t0, Machines: []watch.Machine{withPackages(healthy("vt100", 2, 7, 6), false, runs...)}})
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("4")})
 	for range 29 {
 		next, _ = next.Update(tea.KeyMsg{Type: tea.KeyDown})
@@ -302,7 +302,7 @@ func TestChangesScroll(t *testing.T) {
 func TestRebootAndFailedApt(t *testing.T) {
 	runs := nightly(t0.Add(-time.Hour))
 	runs[0].Error = "Sub-process /usr/bin/dpkg returned an error code (1)"
-	inv := vakt.Inventory{AskedAt: t0, Machines: []vakt.Machine{withPackages(healthy("vt100", 2, 7, 6), true, runs...)}}
+	inv := watch.Inventory{AskedAt: t0, Machines: []watch.Machine{withPackages(healthy("vt100", 2, 7, 6), true, runs...)}}
 	a := attention(inv, nil, t0)
 	if len(a) != 2 || a[0].level != alarm || a[1].level != notice {
 		t.Fatalf("attention %+v", a)
@@ -315,7 +315,7 @@ func TestRebootAndFailedApt(t *testing.T) {
 	}
 	// A failure apt got past since is history, not a problem.
 	runs = append([]machine.PackageRun{{Started: t0, Command: "apt upgrade", Upgraded: []machine.Package{{Name: "a", From: "1", To: "2"}}}}, runs...)
-	if a := attention(vakt.Inventory{Machines: []vakt.Machine{withPackages(healthy("vt100", 2, 7, 6), false, runs...)}}, nil, t0); len(a) != 0 {
+	if a := attention(watch.Inventory{Machines: []watch.Machine{withPackages(healthy("vt100", 2, 7, 6), false, runs...)}}, nil, t0); len(a) != 0 {
 		t.Errorf("an old apt failure needs you: %+v", a)
 	}
 }
@@ -346,29 +346,29 @@ func TestRebootFor(t *testing.T) {
 
 // pcFleet: vt100 runs 9463b1f, whose audit has a vulnerability its code
 // reaches. fixed is the commit of a later build without it, or "" for none.
-func pcFleet(fixed string) (vakt.Inventory, vakt.Punchcard) {
+func pcFleet(fixed string) (watch.Inventory, watch.Punchcard) {
 	a := app("vt100", true, "live")
 	a.Deploys[0].SHA256 = "sum-9463b1f"
-	inv := vakt.Inventory{AskedAt: t0, Machines: []vakt.Machine{withApps(healthy("vt100", 2, 7, 6), a, app("punchcard", true, "live"))}}
-	called := vakt.Finding{ID: "GO-2026-4441", Ecosystem: "Go", Package: "golang.org/x/net", Version: "v0.17.0", Fixed: "v0.45.0", Reach: "called",
+	inv := watch.Inventory{AskedAt: t0, Machines: []watch.Machine{withApps(healthy("vt100", 2, 7, 6), a, app("punchcard", true, "live"))}}
+	called := watch.Finding{ID: "GO-2026-4441", Ecosystem: "Go", Package: "golang.org/x/net", Version: "v0.17.0", Fixed: "v0.45.0", Reach: "called",
 		Summary: "Infinite parsing loop in golang.org/x/net"}
-	required := vakt.Finding{ID: "GO-2024-2687", Ecosystem: "Go", Package: "golang.org/x/net", Version: "v0.17.0", Fixed: "v0.23.0", Reach: "required"}
-	pc := vakt.Punchcard{
-		Builds: []vakt.Build{{Repo: "vt100io/vt100", SHA: "9463b1f00", Event: "push", Result: "passed", Finished: t0.Add(-48 * time.Hour)}},
-		Audits: []vakt.Audit{{Repo: "vt100io/vt100", SHA: "9463b1f00", Artifact: "bin/vt100", SHA256: "sum-9463b1f", Scanner: "govulncheck v1.10.0",
-			Checked: t0.Add(-2 * time.Hour), Findings: []vakt.Finding{called, required}}},
+	required := watch.Finding{ID: "GO-2024-2687", Ecosystem: "Go", Package: "golang.org/x/net", Version: "v0.17.0", Fixed: "v0.23.0", Reach: "required"}
+	pc := watch.Punchcard{
+		Builds: []watch.Build{{Repo: "vt100io/vt100", SHA: "9463b1f00", Event: "push", Result: "passed", Finished: t0.Add(-48 * time.Hour)}},
+		Audits: []watch.Audit{{Repo: "vt100io/vt100", SHA: "9463b1f00", Artifact: "bin/vt100", SHA256: "sum-9463b1f", Scanner: "govulncheck v1.10.0",
+			Checked: t0.Add(-2 * time.Hour), Findings: []watch.Finding{called, required}}},
 	}
 	if fixed != "" {
-		pc.Builds = append([]vakt.Build{{Repo: "vt100io/vt100", SHA: fixed, Event: "push", Result: "passed", Finished: t0.Add(-time.Hour)}}, pc.Builds...)
-		pc.Audits = append([]vakt.Audit{{Repo: "vt100io/vt100", SHA: fixed, Artifact: "bin/vt100", SHA256: "sum-fix", Checked: t0.Add(-time.Hour), Findings: []vakt.Finding{required}}}, pc.Audits...)
+		pc.Builds = append([]watch.Build{{Repo: "vt100io/vt100", SHA: fixed, Event: "push", Result: "passed", Finished: t0.Add(-time.Hour)}}, pc.Builds...)
+		pc.Audits = append([]watch.Audit{{Repo: "vt100io/vt100", SHA: fixed, Artifact: "bin/vt100", SHA256: "sum-fix", Checked: t0.Add(-time.Hour), Findings: []watch.Finding{required}}}, pc.Audits...)
 	}
 	return inv, pc
 }
 
-func withPC(t *testing.T, inv vakt.Inventory, pc vakt.Punchcard, err error) Model {
+func withPC(t *testing.T, inv watch.Inventory, pc watch.Punchcard, err error) Model {
 	t.Helper()
-	m := New(func(context.Context) (vakt.Inventory, error) { return inv, nil }).
-		WithPunchcard("vt100:8081", func(context.Context) (vakt.Punchcard, error) { return pc, err })
+	m := New(func(context.Context) (watch.Inventory, error) { return inv, nil }).
+		WithPunchcard("vt100:8081", func(context.Context) (watch.Punchcard, error) { return pc, err })
 	m.now = func() time.Time { return t0.Add(3 * time.Second) }
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
 	next, _ = next.Update(inventoryMsg{inv: inv})

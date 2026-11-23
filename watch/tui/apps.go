@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vt100io/smed/vakt"
-	"github.com/vt100io/smed/vakt/machine"
+	"github.com/vt100io/smed/watch"
+	"github.com/vt100io/smed/watch/machine"
 )
 
 // appRef is an app and the machine it runs on.
@@ -21,7 +21,7 @@ func (m Model) apps() []appRef {
 	return appsOf(m.inv)
 }
 
-func appsOf(inv vakt.Inventory) []appRef {
+func appsOf(inv watch.Inventory) []appRef {
 	var out []appRef
 	for _, mc := range inv.Machines {
 		if mc.Report == nil {
@@ -47,7 +47,7 @@ func (m Model) selectedApp() (appRef, bool) {
 
 // appLevel is how much an app asks of you, the worst of how it runs and
 // what's known about its vulnerabilities.
-func appLevel(a machine.App, s *vakt.Security, now time.Time) (level, string) {
+func appLevel(a machine.App, s *watch.Security, now time.Time) (level, string) {
 	l, why := runLevel(a)
 	if sl, swhy := securityLevel(a, s, now); sl > l {
 		return sl, swhy
@@ -77,7 +77,7 @@ func runLevel(a machine.App) (level, string) {
 	return fine, ""
 }
 
-func appMark(a machine.App, s *vakt.Security, now time.Time) string {
+func appMark(a machine.App, s *watch.Security, now time.Time) string {
 	switch l, _ := appLevel(a, s, now); l {
 	case alarm:
 		return styleBad.Render("✗")

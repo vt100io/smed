@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vt100io/smed/vakt/machine"
+	"github.com/vt100io/smed/watch/machine"
 )
 
 func testHandler() http.Handler {
 	return handler(machine.Reader{
-		Proc: "../../vakt/machine/testdata/proc", Etc: "../../vakt/machine/testdata/etc",
+		Proc: "../../watch/machine/testdata/proc", Etc: "../../watch/machine/testdata/etc",
 		Statfs: func(string) (uint64, uint64, uint64, error) { return 100, 10, 90, nil },
 		Now:    time.Now,
 	})

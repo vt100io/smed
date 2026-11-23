@@ -188,9 +188,14 @@ smed.Host("vt100").Run(...).Apply(ctx, opts)
 
 The auth key ends up in the server's first-boot data, readable to root afterwards: use a single-use key with a short expiry.
 
-## vakt: keeping watch over what you declared (early)
+## Watch mode: keeping watch over what you built (early)
 
-Ansible goes blind when the playbook ends. smed doesn't have to: what you declared (machines, tags, types and prices, and soon what each box is for) already lives in your Go program. vakt is the part that keeps watch. It compares what you declared with what the machines say right now, and is built to be called into like a BBS: `ssh vakt` over Tailscale, with no web and no logins.
+Ansible goes blind when the playbook ends. smed doesn't have to: what you declared (machines, tags, types and prices, and soon what each box is for) already lives in your Go program. A machine's life is one story, declared, provisioned, configured, watched, so smed has a watch mode for the last part. It compares what you declared with what the machines say right now, in one terminal pane, and is built to be called into like a BBS over Tailscale, with no web and no logins:
+
+```go
+case "watch": // go run . watch
+	return tui.Main(ctx, tailnet.LocalDaemon(), watch.Fleet{Hosts: hosts, Punchcard: "vt100:8081"}, args)
+```
 
 The first piece is the responder. Every machine answers one question over HTTP, about itself, right now:
 
@@ -203,9 +208,9 @@ curl vt100:7979 | jq   # load, CPU, memory, disks, uptime, OS: one versioned JSO
 - **Tailnet only.** It has no domain and goes through no proxy.
 - **Says what is true now.** A file it can't read is an error, never a zero that looks healthy.
 
-`cmd/vakt-responder` is the binary and `vakt/machine` reads the machine. It is deployed with [unit](https://github.com/vt100io/unit) from this repo's `unit.toml`, which needs unit's `allow_system_stats` to read `/proc`.
+`cmd/smed-responder` is the binary and `watch/machine` reads the machine. It is deployed with [unit](https://github.com/vt100io/unit) from this repo's `unit.toml`, which needs unit's `allow_system_stats` to read `/proc`.
 
-With `Fleet.Punchcard` set (`"vt100:8081"`), vakt also reads [Punchcard](https://github.com/vt100io/punchcard)'s builds and vulnerability audits over the tailnet, and joins them with what each service runs. The join is by the checksum unit records for every deploy, so the audit vakt shows is of the exact binary that runs, not of the source or of `main`. A vulnerability the running code reaches is an alarm, and it says what to do: deploy the newer build that passed CI and is audited without it, or, if there's none yet, which package to bump and to what. It goes away by itself when the fix runs. Findings the code doesn't reach are listed on the service, and stay off the overview.
+With `Fleet.Punchcard` set (`"vt100:8081"`), watch mode also reads [Punchcard](https://github.com/vt100io/punchcard)'s builds and vulnerability audits over the tailnet, and joins them with what each service runs. The join is by the checksum unit records for every deploy, so the audit it shows is of the exact binary that runs, not of the source or of `main`. A vulnerability the running code reaches is an alarm, and it says what to do: deploy the newer build that passed CI and is audited without it, or, if there's none yet, which package to bump and to what. It goes away by itself when the fix runs. Findings the code doesn't reach are listed on the service, and stay off the overview.
 
 One boundary is deliberate: the control center will know your intent, but it won't get your rights. `Plan` reads over SSH with sudo, so the node never runs it. It only compares declarations with what the responders answer.
 

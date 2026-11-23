@@ -382,7 +382,7 @@ func (h *HostSpec) selectTargets(all []connect.Target) []connect.Target {
 }
 
 // Selector reports what h selects: a hostname (Host) or a tag (Tag), the
-// other one empty. vakt uses it to compare what you declared with what is
+// other one empty. smed uses it to compare what you declared with what is
 // in the tailnet, without a second copy of the matching rules.
 func (h *HostSpec) Selector() (hostname, tag string) { return h.hostname, h.tag }
 

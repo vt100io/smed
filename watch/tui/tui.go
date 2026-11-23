@@ -1,4 +1,4 @@
-// Package tui is vakt's control center in the terminal: panels on the left
+// Package tui is smed's watch mode in the terminal: panels on the left
 // drive the content on the right, in the style of lazygit. It asks every
 // machine every few seconds and keeps the answers only in memory, so the
 // graphs show what happened while you watched, nothing more.
@@ -15,7 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/vt100io/smed/tailnet"
-	"github.com/vt100io/smed/vakt"
+	"github.com/vt100io/smed/watch"
 )
 
 // Every is how often the machines are asked, and PunchcardEvery how often
@@ -28,13 +28,13 @@ const (
 // Main runs the control center in a terminal, and prints the plain
 // inventory table otherwise, or with -text. A fleet program needs one line:
 //
-//	tui.Main(ctx, tailnet.LocalDaemon(), vakt.Fleet{Hosts: hosts}, args)
-func Main(ctx context.Context, tn tailnet.Tailnet, fleet vakt.Fleet, args []string) error {
-	ask := func(ctx context.Context) (vakt.Inventory, error) { return vakt.Ask(ctx, tn, fleet) }
+//	tui.Main(ctx, tailnet.LocalDaemon(), watch.Fleet{Hosts: hosts}, args)
+func Main(ctx context.Context, tn tailnet.Tailnet, fleet watch.Fleet, args []string) error {
+	ask := func(ctx context.Context) (watch.Inventory, error) { return watch.Ask(ctx, tn, fleet) }
 	m := New(ask)
 	if fleet.Punchcard != "" {
-		m = m.WithPunchcard(fleet.Punchcard, func(ctx context.Context) (vakt.Punchcard, error) {
-			return vakt.AskPunchcard(ctx, tn, fleet.Punchcard)
+		m = m.WithPunchcard(fleet.Punchcard, func(ctx context.Context) (watch.Punchcard, error) {
+			return watch.AskPunchcard(ctx, tn, fleet.Punchcard)
 		})
 	}
 	if slices.Contains(args, "-text") || !isTerminal(os.Stdout) {
@@ -59,8 +59,8 @@ func isTerminal(w io.Writer) bool {
 
 // Asker asks the fleet once, and PunchcardAsker asks Punchcard once.
 type (
-	Asker          func(ctx context.Context) (vakt.Inventory, error)
-	PunchcardAsker func(ctx context.Context) (vakt.Punchcard, error)
+	Asker          func(ctx context.Context) (watch.Inventory, error)
+	PunchcardAsker func(ctx context.Context) (watch.Punchcard, error)
 )
 
 // Panels on the left, in order; 1-4 jump to them.
@@ -76,7 +76,7 @@ const (
 type Model struct {
 	ask    Asker
 	now    func() time.Time
-	inv    vakt.Inventory
+	inv    watch.Inventory
 	err    error
 	asked  bool // at least one answer, or error, has come back
 	asking bool
@@ -86,7 +86,7 @@ type Model struct {
 	// when a later ask fails, and pcErr says that one failed.
 	askPC    PunchcardAsker
 	pcAddr   string
-	pc       *vakt.Punchcard
+	pc       *watch.Punchcard
 	pcErr    error
 	pcAt     time.Time // when Punchcard last answered or failed
 	pcAsking bool
@@ -123,7 +123,7 @@ type pcView struct {
 func (m Model) pcView() pcView { return pcView{m.askPC != nil, m.sec(), m.pcErr} }
 
 type punchcardMsg struct {
-	pc  vakt.Punchcard
+	pc  watch.Punchcard
 	err error
 }
 
@@ -140,7 +140,7 @@ func (m Model) askPCCmd() tea.Cmd {
 }
 
 type inventoryMsg struct {
-	inv vakt.Inventory
+	inv watch.Inventory
 	err error
 }
 
@@ -150,7 +150,7 @@ func (m Model) Init() tea.Cmd { return tea.Batch(m.askCmd(), m.askPCCmd(), tick(
 
 func (m Model) askCmd() tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), vakt.Timeout+2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), watch.Timeout+2*time.Second)
 		defer cancel()
 		inv, err := m.ask(ctx)
 		return inventoryMsg{inv, err}
@@ -244,7 +244,7 @@ func (m *Model) list() (*int, int) {
 }
 
 // record keeps each machine's CPU and memory, for the graphs.
-func (m Model) record(inv vakt.Inventory) {
+func (m Model) record(inv watch.Inventory) {
 	for _, mc := range inv.Machines {
 		if mc.Report == nil {
 			continue

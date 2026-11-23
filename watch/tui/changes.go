@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vt100io/smed/vakt"
-	"github.com/vt100io/smed/vakt/machine"
+	"github.com/vt100io/smed/watch"
+	"github.com/vt100io/smed/watch/machine"
 )
 
 // change is one thing that happened to the fleet: a deploy or an apt run.
@@ -29,7 +29,7 @@ const (
 )
 
 // changesOf is the fleet's timeline, newest first.
-func changesOf(inv vakt.Inventory) []change {
+func changesOf(inv watch.Inventory) []change {
 	var out []change
 	for _, mc := range inv.Machines {
 		if mc.Report == nil {

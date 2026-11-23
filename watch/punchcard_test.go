@@ -1,4 +1,4 @@
-package vakt
+package watch
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/vt100io/smed/tailnet"
-	"github.com/vt100io/smed/vakt/machine"
+	"github.com/vt100io/smed/watch/machine"
 )
 
 var p0 = time.Date(2026, 11, 23, 9, 0, 0, 0, time.UTC)

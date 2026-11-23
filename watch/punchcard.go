@@ -1,4 +1,4 @@
-package vakt
+package watch
 
 import (
 	"cmp"
@@ -13,10 +13,10 @@ import (
 	"time"
 
 	"github.com/vt100io/smed/tailnet"
-	"github.com/vt100io/smed/vakt/machine"
+	"github.com/vt100io/smed/watch/machine"
 )
 
-// Punchcard is what Punchcard said about builds and audits. vakt joins it
+// Punchcard is what Punchcard said about builds and audits. smed joins it
 // with what the machines run: an audit is of a binary, and unit deploys
 // only binaries byte-identical to Punchcard's, so the checksum in a deploy
 // record names the audit of what runs.
@@ -26,7 +26,7 @@ type Punchcard struct {
 	Audits  []Audit // the newest audit of each artifact
 }
 
-// Build and Audit are the parts of Punchcard's records vakt uses; its
+// Build and Audit are the parts of Punchcard's records smed uses; its
 // /api/builds and /api/audits send more.
 type Build struct {
 	Repo     string            `json:"repo"`
@@ -123,7 +123,7 @@ func getJSON(ctx context.Context, c *http.Client, url string, version *int, v an
 		return fmt.Errorf("punchcard: reading %s: %w", url, err)
 	}
 	if *version != punchcardAPIVersion {
-		return fmt.Errorf("punchcard: %s is version %d, vakt reads %d", url, *version, punchcardAPIVersion)
+		return fmt.Errorf("punchcard: %s is version %d, smed reads %d", url, *version, punchcardAPIVersion)
 	}
 	return nil
 }

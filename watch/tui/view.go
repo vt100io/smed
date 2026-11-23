@@ -8,8 +8,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/vt100io/smed/vakt"
-	"github.com/vt100io/smed/vakt/machine"
+	"github.com/vt100io/smed/watch"
+	"github.com/vt100io/smed/watch/machine"
 )
 
 const (
@@ -39,7 +39,7 @@ func (m Model) View() string {
 }
 
 func (m Model) header(w int) string {
-	s := styleBrand.Render(" vakt")
+	s := styleBrand.Render(" smed") + styleMuted.Render(" watch")
 	switch {
 	case !m.asked:
 		s += styleMuted.Render(" · asking every machine…")
@@ -183,7 +183,7 @@ func (m Model) overview(w int) []string {
 	return out
 }
 
-func (m Model) overviewRow(mc vakt.Machine) string {
+func (m Model) overviewRow(mc watch.Machine) string {
 	name := styleText.Render(fitLeft(mc.Name, 15))
 	if mc.Report == nil {
 		return name + stateStyle(mc).Render(string(mc.State))
@@ -202,7 +202,7 @@ func (m Model) overviewRow(mc vakt.Machine) string {
 }
 
 // machine is one machine's screen.
-func (m Model) machine(mc vakt.Machine, w int) []string {
+func (m Model) machine(mc watch.Machine, w int) []string {
 	var out []string
 	tags := strings.Join(mc.Tags, " ")
 	decl := "not declared"
@@ -219,8 +219,8 @@ func (m Model) machine(mc vakt.Machine, w int) []string {
 		if mc.Err != "" {
 			out = append(out, styleText.Render(mc.Err))
 		}
-		if mc.State == vakt.NoResponder {
-			out = append(out, "", styleDim.Render("Nothing answers on :"+machine.Port+". Deploy cmd/vakt-responder there with unit."))
+		if mc.State == watch.NoResponder {
+			out = append(out, "", styleDim.Render("Nothing answers on :"+machine.Port+". Deploy cmd/smed-responder there with unit."))
 		}
 		return out
 	}
@@ -253,11 +253,11 @@ func (m Model) machine(mc vakt.Machine, w int) []string {
 	return append(out, appLines(r, m.sec(), m.now())...)
 }
 
-func (m Model) selected() (vakt.Machine, bool) {
+func (m Model) selected() (watch.Machine, bool) {
 	if m.sel < len(m.inv.Machines) {
 		return m.inv.Machines[m.sel], true
 	}
-	return vakt.Machine{}, false
+	return watch.Machine{}, false
 }
 
 // attention is what needs you, worst first. Thresholds live in style.go.
@@ -294,20 +294,20 @@ func (m Model) attention() items {
 	return attention(m.inv, m.sec(), m.now(), extra...)
 }
 
-func attention(inv vakt.Inventory, sec secFunc, now time.Time, extra ...item) items {
+func attention(inv watch.Inventory, sec secFunc, now time.Time, extra ...item) items {
 	out := items(extra)
 	for _, mc := range inv.Machines {
 		declared := len(mc.Declared) > 0
 		switch mc.State {
-		case vakt.Missing:
+		case watch.Missing:
 			out = append(out, item{alarm, mc.Name, "declared, but not in the tailnet"})
-		case vakt.Offline:
+		case watch.Offline:
 			out = append(out, item{alarm, mc.Name, "offline in the tailnet"})
-		case vakt.Silent:
+		case watch.Silent:
 			out = append(out, item{alarm, mc.Name, "silent: no answer in time"})
-		case vakt.Failing:
+		case watch.Failing:
 			out = append(out, item{alarm, mc.Name, "answers with an error: " + mc.Err})
-		case vakt.NoResponder:
+		case watch.NoResponder:
 			if declared { // undeclared machines just haven't got one yet
 				out = append(out, item{notice, mc.Name, "declared, but no responder on :" + machine.Port})
 			}
@@ -407,13 +407,13 @@ func pct(p float64, l level) string {
 	return l.style().Render(s)
 }
 
-func stateDot(mc vakt.Machine) string { return stateStyle(mc).Render("●") }
+func stateDot(mc watch.Machine) string { return stateStyle(mc).Render("●") }
 
-func stateStyle(mc vakt.Machine) lipgloss.Style {
+func stateStyle(mc watch.Machine) lipgloss.Style {
 	switch mc.State {
-	case vakt.Answered:
+	case watch.Answered:
 		return styleOK
-	case vakt.NoResponder:
+	case watch.NoResponder:
 		if len(mc.Declared) == 0 {
 			return styleDim
 		}
@@ -432,10 +432,10 @@ func fullestDisk(r *machine.Report) machine.Disk {
 	return d
 }
 
-func answered(inv vakt.Inventory) int {
+func answered(inv watch.Inventory) int {
 	n := 0
 	for _, m := range inv.Machines {
-		if m.State == vakt.Answered {
+		if m.State == watch.Answered {
 			n++
 		}
 	}

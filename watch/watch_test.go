@@ -1,4 +1,4 @@
-package vakt
+package watch
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 	"github.com/vt100io/smed"
 	"github.com/vt100io/smed/module/command"
 	"github.com/vt100io/smed/tailnet"
-	"github.com/vt100io/smed/vakt/machine"
+	"github.com/vt100io/smed/watch/machine"
 )
 
 // fakeTailnet routes each peer to a local address instead of its tailnet IP.
@@ -72,7 +72,7 @@ func TestAsk(t *testing.T) {
 			peer("old", false, "tag:web"),      // declared by tag, offline
 			peer("phone", true),                // personal: untagged, undeclared
 			{Hostname: "funnel-ingress-node"},  // not a machine
-			peer("future", true, "tag:vt100x"), // a version vakt can't read
+			peer("future", true, "tag:vt100x"), // a version smed can't read
 		},
 		addrs: map[string]string{
 			"vt100":  responder(t, healthy, http.StatusOK),
@@ -130,7 +130,7 @@ func TestAsk(t *testing.T) {
 	rows := map[string][]string{ // what each machine's row must say
 		"vt100":  {`Host("vt100")`, "answered", "/data 91%", "4d", "Debian GNU/Linux 13 (trixie)"},
 		"gone":   {`Host("gone")`, "declared, missing"},
-		"future": {"–", "error", "speaks version 2, vakt reads 1"},
+		"future": {"–", "error", "speaks version 2, smed reads 1"},
 		"db-1":   {"error", "500 Internal Server Error"},
 		"web-2":  {`Tag("web")`, "no responder"},
 	}

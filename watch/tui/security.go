@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vt100io/smed/vakt"
-	"github.com/vt100io/smed/vakt/machine"
+	"github.com/vt100io/smed/watch"
+	"github.com/vt100io/smed/watch/machine"
 )
 
 // staleAudit is when an audit of a running binary is too old to trust:
@@ -16,8 +16,8 @@ import (
 const staleAudit = 3 * 24 * time.Hour
 
 // secFunc finds what's known about the vulnerabilities in what an app
-// runs; nil when vakt has nothing from Punchcard.
-type secFunc func(machine.App) *vakt.Security
+// runs; nil when smed has nothing from Punchcard.
+type secFunc func(machine.App) *watch.Security
 
 // sec is m's secFunc: nil until Punchcard has answered once.
 func (m Model) sec() secFunc {
@@ -25,13 +25,13 @@ func (m Model) sec() secFunc {
 		return nil
 	}
 	pc := *m.pc
-	return func(a machine.App) *vakt.Security {
+	return func(a machine.App) *watch.Security {
 		s := pc.SecurityOf(a)
 		return &s
 	}
 }
 
-func (f secFunc) of(a machine.App) *vakt.Security {
+func (f secFunc) of(a machine.App) *watch.Security {
 	if f == nil {
 		return nil
 	}
@@ -43,7 +43,7 @@ func (f secFunc) of(a machine.App) *vakt.Security {
 // notice, since then nobody is watching. Not audited at all is quiet:
 // apps deployed before Punchcard kept binaries are, until their next
 // deploy.
-func securityLevel(a machine.App, s *vakt.Security, now time.Time) (level, string) {
+func securityLevel(a machine.App, s *watch.Security, now time.Time) (level, string) {
 	if s == nil || s.Audit == nil {
 		return fine, ""
 	}
@@ -60,7 +60,7 @@ func securityLevel(a machine.App, s *vakt.Security, now time.Time) (level, strin
 	return fine, ""
 }
 
-func vulnNames(fs []vakt.Finding) string {
+func vulnNames(fs []watch.Finding) string {
 	if len(fs) == 1 {
 		return fs[0].ID
 	}
@@ -68,7 +68,7 @@ func vulnNames(fs []vakt.Finding) string {
 }
 
 // bumpText says what to upgrade: "bump golang.org/x/net to v0.55.0".
-func bumpText(bs []vakt.Finding) string {
+func bumpText(bs []watch.Finding) string {
 	var parts []string
 	for _, b := range bs {
 		name, fixed := b.Package, b.Fixed
@@ -92,7 +92,7 @@ func short(sha string) string {
 }
 
 // securityLines is the SECURITY section of an app's screen.
-func securityLines(a machine.App, s *vakt.Security, pcErr error, now time.Time) []string {
+func securityLines(a machine.App, s *watch.Security, pcErr error, now time.Time) []string {
 	out := []string{"", styleHeading.Render("SECURITY") + styleMuted.Render(" from Punchcard")}
 	switch {
 	case s == nil && pcErr != nil:

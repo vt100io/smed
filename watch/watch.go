@@ -1,11 +1,12 @@
-// Package vakt keeps watch over what you declared with smed. It asks every
-// machine in the tailnet what it looks like right now, and compares the
+// Package watch is smed in watch mode: smed built and configured the
+// machines, and here it keeps watch over them. It asks every machine in
+// the tailnet what it looks like right now, and compares the
 // answers with your HostSpecs: which declared machines answer, which are
 // missing, and which machines nobody declared.
 //
 // It asks; it never acts. It needs no SSH and no secrets, only the tailnet
-// and each machine's read-only responder (cmd/vakt-responder).
-package vakt
+// and each machine's read-only responder (cmd/smed-responder).
+package watch
 
 import (
 	"context"
@@ -22,10 +23,10 @@ import (
 
 	"github.com/vt100io/smed"
 	"github.com/vt100io/smed/tailnet"
-	"github.com/vt100io/smed/vakt/machine"
+	"github.com/vt100io/smed/watch/machine"
 )
 
-// Fleet is what you declared. It may be empty: then vakt shows the tailnet
+// Fleet is what you declared. It may be empty: then smed shows the tailnet
 // as it is, with nothing to compare against.
 type Fleet struct {
 	Hosts []*smed.HostSpec
@@ -34,7 +35,7 @@ type Fleet struct {
 	Punchcard string
 }
 
-// State is what vakt learned about one machine.
+// State is what smed learned about one machine.
 type State string
 
 const (
@@ -157,7 +158,7 @@ func ask(ctx context.Context, tn tailnet.Tailnet, p tailnet.Peer, m *Machine) {
 		return
 	}
 	if rep.Version != machine.Version {
-		m.State, m.Err = Failing, fmt.Sprintf("speaks version %d, vakt reads %d", rep.Version, machine.Version)
+		m.State, m.Err = Failing, fmt.Sprintf("speaks version %d, smed reads %d", rep.Version, machine.Version)
 		return
 	}
 	m.State, m.Report = Answered, &rep
