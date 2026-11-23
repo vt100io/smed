@@ -1,0 +1,19 @@
+# smed is a library; the one thing deployed from this repo is vakt's
+# responder, with unit (github.com/vt100io/unit): mise run build, unit deploy.
+# Spike: on vt100 only. Later smed itself puts it on every machine.
+name       = "vakt"
+executable = "bin/vakt-responder"
+port       = 7979 # no domain: reachable in the tailnet only, never through Caddy
+
+ci_check    = "punchcard/ci"
+ci_checksum = "punchcard/sha256"
+
+[sandbox]
+allow_system_stats = true # read /proc/loadavg, meminfo and stat
+
+[server]
+host = "vt100" # over Tailscale
+user = "deploy"
+
+[resources]
+memory_max = "32M"

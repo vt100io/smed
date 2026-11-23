@@ -1,0 +1,6 @@
+22 1 8:1 / / ro,relatime shared:1 - ext4 /dev/sda1 rw
+23 22 0:5 / /proc rw,nosuid shared:2 - proc proc rw
+24 22 8:1 /var/lib/private/vakt /var/lib/vakt rw shared:1 - ext4 /dev/sda1 rw
+25 22 8:1 / /var/log ro shared:1 - ext4 /dev/sda1 rw
+26 22 0:30 / /tmp rw - tmpfs tmpfs rw
+27 22 8:17 / /mnt/big\040data rw shared:3 - xfs /dev/sdb1 rw

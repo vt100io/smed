@@ -11,7 +11,11 @@ run = "go run golang.org/x/vuln/cmd/govulncheck@latest ./..."
 description = "Run the tests"
 run = "go test ./..."
 
+[tasks.build]
+description = "Build vakt's responder into one static binary"
+run = "CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o bin/vakt-responder ./cmd/vakt-responder"
+
 [tasks.ci]
 description = "What Punchcard runs on push and PR"
-depends = ["check", "test"]
+depends = ["check", "test", "build"]
 run = "go vet ./..."

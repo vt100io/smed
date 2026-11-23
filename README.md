@@ -188,6 +188,25 @@ smed.Host("vt100").Run(...).Apply(ctx, opts)
 
 The auth key ends up in the server's first-boot data, readable to root afterwards: use a single-use key with a short expiry.
 
+## vakt: keeping watch over what you declared (early)
+
+Ansible goes blind when the playbook ends. smed doesn't have to: what you declared (machines, tags, types and prices, and soon what each box is for) already lives in your Go program. vakt is the part that keeps watch. It compares what you declared with what the machines say right now, and is built to be called into like a BBS: `ssh vakt` over Tailscale, with no web and no logins.
+
+The first piece is the responder. Every machine answers one question over HTTP, about itself, right now:
+
+```sh
+curl vt100:7979 | jq   # load, CPU, memory, disks, uptime, OS: one versioned JSON document
+```
+
+- **Read-only by construction.** It only answers `GET /`. It takes no input but the path and writes nothing.
+- **Runs when asked.** systemd holds the socket and starts it on the first question.
+- **Tailnet only.** It has no domain and goes through no proxy.
+- **Says what is true now.** A file it can't read is an error, never a zero that looks healthy.
+
+`cmd/vakt-responder` is the binary and `vakt/machine` reads the machine. It is deployed with [unit](https://github.com/vt100io/unit) from this repo's `unit.toml`, which needs unit's `allow_system_stats` to read `/proc`.
+
+One boundary is deliberate: the control center will know your intent, but it won't get your rights. `Plan` reads over SSH with sudo, so the node never runs it. It only compares declarations with what the responders answer.
+
 ## What makes this different
 
 ### Tailscale is the backend, not a plugin
