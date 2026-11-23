@@ -40,6 +40,10 @@ type Report struct {
 	Load       [3]float64 `json:"load"`
 	Memory     Memory     `json:"memory"`
 	Disks      []Disk     `json:"disks"`
+	// Apps is what unit installed. Added in version 1 without a bump: new
+	// fields don't change what the old ones mean, and an older responder
+	// simply doesn't send them.
+	Apps []App `json:"apps"`
 }
 
 type Memory struct {
@@ -60,6 +64,7 @@ type Disk struct {
 type Reader struct {
 	Proc      string // where /proc is
 	Etc       string // where /etc is, for os-release
+	Root      string // where / is, for unit's and systemd's files
 	CPUWindow time.Duration
 	// Statfs returns the size, used bytes and bytes available to unprivileged
 	// users of the filesystem at path.
@@ -69,7 +74,7 @@ type Reader struct {
 
 // Live reads the machine it runs on.
 func Live() Reader {
-	return Reader{Proc: "/proc", Etc: "/etc", CPUWindow: 250 * time.Millisecond, Statfs: statfs, Now: time.Now}
+	return Reader{Proc: "/proc", Etc: "/etc", Root: "/", CPUWindow: 250 * time.Millisecond, Statfs: statfs, Now: time.Now}
 }
 
 // Read asks the machine. A file that can't be read is an error: a report
@@ -122,6 +127,7 @@ func (r Reader) Read() (Report, error) {
 			UsedPercent: percent(used, used+avail),
 		})
 	}
+	rep.Apps = r.apps()
 	return rep, nil
 }
 

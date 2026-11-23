@@ -11,7 +11,7 @@ import (
 func fixture(t *testing.T) Reader {
 	t.Helper()
 	return Reader{
-		Proc: "testdata/proc", Etc: "testdata/etc",
+		Proc: "testdata/proc", Etc: "testdata/etc", Root: "testdata/root",
 		Statfs: func(path string) (total, used, avail uint64, err error) {
 			switch path {
 			case "/":
@@ -110,5 +110,52 @@ func TestMountinfoBtrfsSubvolume(t *testing.T) {
 	want := []mount{{"/", "btrfs"}, {"/boot", "vfat"}}
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+// Apps come from what unit and systemd already keep on the machine.
+func TestApps(t *testing.T) {
+	rep, err := fixture(t).Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Apps) != 2 {
+		t.Fatalf("apps %+v", rep.Apps)
+	}
+	old, vt := rep.Apps[0], rep.Apps[1] // in directory order
+	if old.Name != "old" || old.Release != "" || old.Running || len(old.Deploys) != 0 {
+		t.Errorf("an app without records or a cgroup: %+v", old)
+	}
+	if vt.Name != "vt100" || vt.Release != "9463b1f" || !vt.Running || vt.Tasks != 7 || vt.Port != 8080 {
+		t.Errorf("vt100: %+v", vt)
+	}
+	if vt.MemoryBytes != 12464128 || vt.MemoryMaxBytes != 128<<20 {
+		t.Errorf("memory %d of %d", vt.MemoryBytes, vt.MemoryMaxBytes)
+	}
+	if len(vt.Domains) != 2 || vt.Domains[0] != "vt100.io" || vt.Domains[1] != "www.vt100.io" {
+		t.Errorf("domains %q", vt.Domains)
+	}
+	// Newest first; the damaged line and the uninstalled app don't leak in.
+	if len(vt.Deploys) != 2 || vt.Deploys[0].Version != "9463b1f" || vt.Deploys[0].Previous != "4e30d97" || !vt.Deploys[0].SameAsCI {
+		t.Errorf("deploys %+v", vt.Deploys)
+	}
+}
+
+// A machine without unit is a machine without apps, not a broken one.
+func TestNoUnit(t *testing.T) {
+	r := fixture(t)
+	r.Root = t.TempDir()
+	rep, err := r.Read()
+	if err != nil || len(rep.Apps) != 0 {
+		t.Errorf("apps %v, err %v", rep.Apps, err)
+	}
+}
+
+func TestListenPortAndDomains(t *testing.T) {
+	if p := listenPort("[Socket]\nListenStream=127.0.0.1:9000\n"); p != 9000 {
+		t.Errorf("port %d", p)
+	}
+	if d := caddyDomains("api.example.com {\n}"); len(d) != 1 || d[0] != "api.example.com" {
+		t.Errorf("domains %q", d)
 	}
 }

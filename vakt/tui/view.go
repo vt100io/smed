@@ -46,7 +46,7 @@ func (m Model) header(w int) string {
 
 func (m Model) footer(w int) string {
 	keys := []struct{ k, what string }{
-		{"tab/1-4", "panel"}, {"↑↓", "machine"}, {"r", "ask now"}, {"q", "quit"},
+		{"tab/1-4", "panel"}, {"↑↓", "select"}, {"r", "ask now"}, {"q", "quit"},
 	}
 	var parts []string
 	for _, k := range keys {
@@ -68,10 +68,22 @@ func (m Model) left(height int) []string {
 	n := len(m.inv.Machines)
 	status = append(status, styleMuted.Render(fmt.Sprintf("%d %s · %d answered", n, plural(n, "machine", "machines"), answered(m.inv))))
 
-	services := []string{styleDim.Render("next: apps from unit's"), styleDim.Render("deploy records")}
+	var services []string
+	for i, a := range m.apps() {
+		mark, name := " ", styleText.Render(fitLeft(a.app.Name, 11))
+		if m.focus == panelServices && i == m.appSel {
+			mark, name = styleAccent.Render("▸"), styleName.Render(fitLeft(a.app.Name, 11))
+		}
+		services = append(services, mark+appMark(a.app)+" "+name+" "+styleMuted.Render(a.machine))
+	}
+	if len(services) == 0 {
+		services = []string{styleMuted.Render("no apps from unit yet")}
+	}
 	changes := []string{styleDim.Render("next: commits, deploys,"), styleDim.Render("package upgrades")}
 
-	fixed := 3 * 4 // three panels of two lines plus borders
+	// Services grows with the apps, up to a point; Machines takes the rest.
+	servicesHeight := min(max(len(services), 2), 8) + 2
+	fixed := 4 + servicesHeight + 4
 	var machines []string
 	for i, mc := range m.inv.Machines {
 		// The selection is a mark and a bold name, not a background: a
@@ -92,7 +104,7 @@ func (m Model) left(height int) []string {
 
 	var out []string
 	out = append(out, box("[1] Status", status, leftWidth, 4, m.focus == panelStatus)...)
-	out = append(out, box("[2] Services", services, leftWidth, 4, m.focus == panelServices)...)
+	out = append(out, box("[2] Services", services, leftWidth, servicesHeight, m.focus == panelServices)...)
 	out = append(out, box("[3] Machines", machines, leftWidth, height-fixed, m.focus == panelMachines)...)
 	out = append(out, box("[4] Changes", changes, leftWidth, 4, m.focus == panelChanges)...)
 	return out
@@ -106,6 +118,9 @@ func (m Model) rightTitle() string {
 		}
 		return "Machines"
 	case panelServices:
+		if a, ok := m.selectedApp(); ok {
+			return a.app.Name + " on " + a.machine
+		}
 		return "Services"
 	case panelChanges:
 		return "Changes"
@@ -120,12 +135,10 @@ func (m Model) right(w int) []string {
 			return m.machine(mc, w)
 		}
 	case panelServices:
-		return []string{
-			styleMuted.Render("What unit deployed, per app: the release that runs, whether it is the"),
-			styleMuted.Render("binary CI built, its sandbox, and logs and history a key away."),
-			"",
-			styleDim.Render("Comes when the responder reads /var/log/unit/deploys.jsonl."),
+		if a, ok := m.selectedApp(); ok {
+			return appScreen(a)
 		}
+		return []string{styleMuted.Render("No apps from unit on the machines that answered.")}
 	case panelChanges:
 		return []string{
 			styleMuted.Render("Has something changed? Commits, deploys and package upgrades on one"),
@@ -225,7 +238,7 @@ func (m Model) machine(mc vakt.Machine, w int) []string {
 		out = append(out, styleText.Render(fitLeft(d.Mount, 12))+bar(d.UsedPercent, 20, diskLevel(d.UsedPercent))+pct(d.UsedPercent, diskLevel(d.UsedPercent))+
 			styleMuted.Render(fmt.Sprintf("   %s free of %s", gib(d.FreeBytes), gib(d.TotalBytes))))
 	}
-	return out
+	return append(out, appLines(r)...)
 }
 
 func (m Model) selected() (vakt.Machine, bool) {
@@ -285,6 +298,11 @@ func attention(inv vakt.Inventory) items {
 			}
 			if l := memLevel(r.Memory.UsedPercent); l > fine {
 				out = append(out, item{l, mc.Name, fmt.Sprintf("memory %.0f%% used", r.Memory.UsedPercent)})
+			}
+			for _, a := range r.Apps {
+				if l, why := appLevel(a); l > fine {
+					out = append(out, item{l, mc.Name, why})
+				}
 			}
 		}
 	}

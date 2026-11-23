@@ -1,0 +1,5 @@
+{"app":"vt100","action":"deploy","version":"4e30d97","ci":"success","same_as_ci":true,"who":"stianh@github","from":"elcap","started":"2026-11-14T22:05:00Z","finished":"2026-11-14T22:05:17Z","result":"live"}
+{"app":"gone","action":"deploy","version":"aaaaaaa","who":"stianh@github","started":"2026-11-15T10:00:00Z","finished":"2026-11-15T10:00:05Z","result":"live"}
+this line is damaged
+{"app":"gone","action":"uninstall","who":"stianh@github","started":"2026-11-16T10:00:00Z","finished":"2026-11-16T10:00:01Z","result":"uninstalled"}
+{"app":"vt100","action":"deploy","version":"9463b1f","previous":"4e30d97","ci":"success","same_as_ci":true,"who":"stianh@github","from":"elcap","started":"2026-11-19T07:31:00Z","finished":"2026-11-19T07:31:03Z","result":"live"}

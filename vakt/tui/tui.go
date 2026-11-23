@@ -71,6 +71,7 @@ type Model struct {
 
 	focus  int
 	sel    int // the selected machine in the Machines panel
+	appSel int // the selected app in the Services panel
 	width  int
 	height int
 }
@@ -114,6 +115,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.inv = msg.inv
 			m.record(msg.inv)
 			m.sel = min(m.sel, max(0, len(m.inv.Machines)-1))
+			m.appSel = min(m.appSel, max(0, len(m.apps())-1))
 		}
 	case tickMsg:
 		if !m.asking && m.asked && m.now().Sub(m.inv.AskedAt) >= Every {
@@ -138,9 +140,17 @@ func (m Model) key(k string) (tea.Model, tea.Cmd) {
 	case "1", "2", "3", "4":
 		m.focus = int(k[0] - '1')
 	case "down", "j":
+		if m.focus == panelServices {
+			m.appSel = min(m.appSel+1, max(0, len(m.apps())-1))
+			break
+		}
 		m.focus = panelMachines
 		m.sel = min(m.sel+1, max(0, len(m.inv.Machines)-1))
 	case "up", "k":
+		if m.focus == panelServices {
+			m.appSel = max(m.appSel-1, 0)
+			break
+		}
 		m.focus = panelMachines
 		m.sel = max(m.sel-1, 0)
 	case "r":

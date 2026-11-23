@@ -131,3 +131,67 @@ func TestSpark(t *testing.T) {
 		t.Errorf("spark %q", got)
 	}
 }
+
+func withApps(mc vakt.Machine, apps ...machine.App) vakt.Machine {
+	mc.Report.Apps = apps
+	return mc
+}
+
+func app(name string, running bool, result string) machine.App {
+	at := t0.Add(-2 * time.Hour)
+	return machine.App{Name: name, Release: "9463b1f", Running: running, MemoryBytes: 12 << 20, MemoryMaxBytes: 128 << 20, Tasks: 7,
+		Port: 8080, Domains: []string{name + ".io"},
+		Deploys: []machine.Deploy{
+			{Version: "9463b1f", Previous: "4e30d97", CI: "success", SameAsCI: true, Who: "stianh@github", From: "elcap", Started: at.Add(-3 * time.Second), Finished: at, Result: result},
+			{Version: "4e30d97", CI: "skipped", Who: "stianh@github", Started: at.Add(-48 * time.Hour), Finished: at.Add(-48 * time.Hour), Result: "live"},
+		}}
+}
+
+func TestServices(t *testing.T) {
+	inv := vakt.Inventory{AskedAt: t0, Machines: []vakt.Machine{
+		withApps(healthy("vt100", 2, 7, 6), app("vt100", true, "live"), app("punchcard", true, "live")),
+	}}
+	m := model(inv)
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "Nothing needs you.") {
+		t.Errorf("healthy apps need you:\n%s", v)
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	next, _ = next.Update(tea.KeyMsg{Type: tea.KeyDown}) // punchcard, then vt100: by name
+	m = next.(Model)
+	if m.focus != panelServices || m.appSel != 1 {
+		t.Fatalf("focus %d appSel %d", m.focus, m.appSel)
+	}
+	checkFits(t, m)
+	v := ansi.Strip(m.View())
+	for _, s := range []string{
+		"─ vt100 on vt100 ─", "▸✓ vt100", "release 9463b1f", "vt100.io · :8080 · memory 12 MiB of 128 MiB · 7 tasks",
+		"LATEST DEPLOY", "9463b1f live · CI ✓ · same as CI · before 4e30d97", "by stianh@github from elcap · took 3s",
+		"HISTORY", "CI skipped", "unit logs",
+	} {
+		if !strings.Contains(v, s) {
+			t.Errorf("app screen lacks %q:\n%s", s, v)
+		}
+	}
+}
+
+func TestAppsThatNeedYou(t *testing.T) {
+	inv := vakt.Inventory{AskedAt: t0, Machines: []vakt.Machine{
+		withApps(healthy("vt100", 2, 7, 6), app("vt100", true, "rolled-back"), app("splash", false, "live")),
+	}}
+	a := attention(inv)
+	if len(a) != 2 || a[0].level != alarm || a[1].level != notice {
+		t.Fatalf("attention %+v", a)
+	}
+	v := ansi.Strip(model(inv).View())
+	for _, s := range []string{"app vt100: 9463b1f rolled back to 4e30d97", "app splash is not running"} {
+		if !strings.Contains(v, s) {
+			t.Errorf("overview lacks %q:\n%s", s, v)
+		}
+	}
+	// The machine screen lists its apps too.
+	m := model(inv)
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	if v := ansi.Strip(next.(Model).View()); !strings.Contains(v, "APPS from unit") || !strings.Contains(v, "rolled-back") {
+		t.Errorf("machine screen lacks its apps:\n%s", v)
+	}
+}
