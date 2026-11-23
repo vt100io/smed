@@ -249,7 +249,16 @@ token := secret.Lazy(pass, "vt100/hetzner-token") // runs: pass show vt100/hetzn
 
 The same resolver works with `gopass`, `secret-tool lookup name` (GNOME Keyring, KWallet), Bitwarden's `bw get password` or 1Password's `op read`. The secret is the command's output, and it never appears in an error.
 
-Getting the resolved value onto the target without it showing up in `ps aux` on that machine is a separate, smaller problem this package doesn't try to solve by itself — two existing Linux mechanisms already cover it: `systemd-creds`/`LoadCredential=` for a running service that needs its own secret at startup, and an env-var-prefixed invocation (`PGPASSWORD=x psql ...`) over a bare command-line argument for a one-off command. No new plumbing was built for either.
+A one-off command gets its secret through `command.Run`'s `Env`, never inside `Cmd`: `Cmd` is printed in Plan and in errors, `Env` is resolved only when the command runs, Plan names the variable (`$PGPASS`) instead of the value, and a value the command prints back comes out as `[secret PGPASS]`:
+
+```go
+command.Run{
+	Cmd: `psql -c "ALTER USER app PASSWORD '$PGPASS'"`,
+	Env: map[string]func(context.Context) (string, error){"PGPASS": secret.Lazy(op, "op://infra/db/app")},
+}
+```
+
+The value still travels inside the command smed sends, so root on the target can see it while the command runs. For a running service that needs its own secret at startup, `systemd-creds`/`LoadCredential=` is the better home.
 
 ## Architecture decisions
 

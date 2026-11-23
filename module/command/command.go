@@ -19,11 +19,16 @@
 // shell pipeline, joining a tailnet, unpacking a release tarball into
 // a venv) — the same job Ansible's creates:/removes: do for an
 // otherwise-unconditional command/shell task.
+//
+// Cmd is printed: in Plan, in errors, and in any record of what ran. A
+// secret goes in Env, never in Cmd.
 package command
 
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/vt100io/smed/module"
@@ -35,6 +40,21 @@ import (
 // or only if Unless reports the condition isn't already satisfied.
 type Run struct {
 	Cmd string
+
+	// Env sets environment variables for Cmd, from values resolved only
+	// when Cmd runs: secret.Lazy fits. Plan never resolves them, and
+	// what smed prints names the variable, never its value; a value the
+	// command prints back is replaced with [secret NAME] in its output.
+	//
+	//	command.Run{
+	//		Cmd: `psql -c "ALTER USER app PASSWORD '$PGPASS'"`,
+	//		Env: map[string]func(context.Context) (string, error){"PGPASS": secret.Lazy(op, "op://infra/db/app")},
+	//	}
+	//
+	// The value still reaches the target inside the command smed sends,
+	// like every secret smed delivers, so the target's root can see it
+	// while the command runs.
+	Env map[string]func(context.Context) (string, error)
 
 	// Unless, checked once during Read, is this command's idempotency
 	// gate: if it reports true (whatever it checks is already true on
@@ -76,18 +96,84 @@ func (r Run) Read(ctx context.Context, run module.Runner) (module.State, error) 
 // Update, the same unconditional "run it" this module always reported
 // before Unless existed.
 func (r Run) Diff(desired, current module.State) (module.Change, error) {
+	if err := r.checkEnv(); err != nil {
+		return module.Change{}, err
+	}
 	if cur, ok := current.(state); ok && cur.satisfied {
 		return module.Change{Action: module.NoOp}, nil
 	}
-	return module.Change{Action: module.Update, Description: r.Cmd}, nil
+	return module.Change{Action: module.Update, Description: r.describe()}, nil
 }
 
 func (r Run) Apply(ctx context.Context, run module.Runner, change module.Change) (module.Result, error) {
-	out, err := run.Run(ctx, r.Cmd)
+	if err := r.checkEnv(); err != nil {
+		return module.Result{}, err
+	}
+	var prefix strings.Builder
+	values := map[string]string{}
+	for _, name := range r.envNames() {
+		v, err := r.Env[name](ctx)
+		if err != nil {
+			return module.Result{}, fmt.Errorf("run %q: resolve $%s: %w", r.Cmd, name, err)
+		}
+		values[name] = v
+		fmt.Fprintf(&prefix, "export %s=%s; ", name, shellquote.Quote(v))
+	}
+	out, err := run.Run(ctx, prefix.String()+r.Cmd)
+	out = redact(out, values)
 	if err != nil {
-		return module.Result{Output: out}, fmt.Errorf("run %q: %w", r.Cmd, err)
+		return module.Result{Output: out}, fmt.Errorf("run %q: %s", r.describe(), redact(err.Error(), values))
 	}
 	return module.Result{Changed: true, Output: out}, nil
+}
+
+var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// checkEnv refuses a name the shell can't export, so Plan says so rather
+// than Apply failing halfway.
+func (r Run) checkEnv() error {
+	for _, name := range r.envNames() {
+		if !envName.MatchString(name) {
+			return fmt.Errorf("run %q: %q is not a variable name", r.Cmd, name)
+		}
+		if r.Env[name] == nil {
+			return fmt.Errorf("run %q: $%s has no value", r.Cmd, name)
+		}
+	}
+	return nil
+}
+
+func (r Run) envNames() []string {
+	names := make([]string, 0, len(r.Env))
+	for name := range r.Env {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
+}
+
+// describe is Cmd and the names of its secrets: what Plan and errors show.
+func (r Run) describe() string {
+	if len(r.Env) == 0 {
+		return r.Cmd
+	}
+	return r.Cmd + " (with $" + strings.Join(r.envNames(), ", $") + ")"
+}
+
+// redact replaces every secret value in s with its name. Longest first, so
+// a value that contains another is replaced whole.
+func redact(s string, values map[string]string) string {
+	names := make([]string, 0, len(values))
+	for name, v := range values {
+		if v != "" {
+			names = append(names, name)
+		}
+	}
+	slices.SortFunc(names, func(a, b string) int { return len(values[b]) - len(values[a]) })
+	for _, name := range names {
+		s = strings.ReplaceAll(s, values[name], "[secret "+name+"]")
+	}
+	return s
 }
 
 // Verify is a no-op: there's no desired state to re-check after the

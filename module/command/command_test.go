@@ -3,8 +3,10 @@ package command
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
+	"github.com/vt100io/smed/dag"
 	"github.com/vt100io/smed/module"
 )
 
@@ -187,4 +189,88 @@ func (s *scriptedCommandRunner) Run(ctx context.Context, cmd string) (string, er
 		return "", errors.New("scriptedCommandRunner: ran out of scripted responses")
 	}
 	return s.responses[len(s.calls)-1], nil
+}
+
+const password = "hunter2-s3cr3t"
+
+func lazy(v string) func(context.Context) (string, error) {
+	return func(context.Context) (string, error) { return v, nil }
+}
+
+// The whole point of Env: the secret reaches the command, and nothing smed
+// prints, returns or keeps contains it.
+func TestEnvNeverShowsTheSecret(t *testing.T) {
+	c := Run{Cmd: `psql -c "ALTER USER app PASSWORD '$PGPASS'"`, Env: map[string]func(context.Context) (string, error){"PGPASS": lazy(password)}}
+
+	change, err := c.Diff(c.Desired(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `psql -c "ALTER USER app PASSWORD '$PGPASS'" (with $PGPASS)`; change.Description != want {
+		t.Errorf("plan says %q, want %q", change.Description, want)
+	}
+
+	// The command echoes the password back, and fails.
+	r := &capturingRunner{out: "ERROR: bad password " + password + "\n", err: errors.New("exit 1: " + password)}
+	res, err := c.Apply(context.Background(), r, change)
+	if !strings.HasPrefix(r.gotCommand, "export PGPASS='"+password+"'; psql") {
+		t.Errorf("the command didn't get the secret: %q", r.gotCommand)
+	}
+	for what, s := range map[string]string{"output": res.Output, "error": err.Error()} {
+		if strings.Contains(s, password) {
+			t.Errorf("%s shows the secret: %q", what, s)
+		}
+		if !strings.Contains(s, "[secret PGPASS]") {
+			t.Errorf("%s doesn't say a secret was there: %q", what, s)
+		}
+	}
+}
+
+// Plan reads and diffs; it must never fetch a secret, which for 1Password
+// would also mean a prompt on every plan.
+func TestPlanNeverResolves(t *testing.T) {
+	c := Run{Cmd: "true", Env: map[string]func(context.Context) (string, error){
+		"X": func(context.Context) (string, error) { t.Error("resolved during plan"); return "", nil },
+	}}
+	var out module.Change
+	g, err := dag.NewGraph([]dag.Step{module.PlanStep("s", c, &capturingRunner{}, &out)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.Run(context.Background(), 0)
+	if out.Action != module.Update {
+		t.Errorf("plan %+v", out)
+	}
+}
+
+func TestEnvNamesAreChecked(t *testing.T) {
+	for _, env := range []map[string]func(context.Context) (string, error){
+		{"NOT-A-NAME": lazy("x")},
+		{"1X": lazy("x")},
+		{"X": nil},
+	} {
+		c := Run{Cmd: "true", Env: env}
+		if _, err := c.Diff(nil, nil); err == nil {
+			t.Errorf("Diff accepted %v", env)
+		}
+	}
+}
+
+func TestResolveFailureNamesTheVariable(t *testing.T) {
+	c := Run{Cmd: "true", Env: map[string]func(context.Context) (string, error){
+		"TOKEN": func(context.Context) (string, error) { return "", errors.New("op: not signed in") },
+	}}
+	r := &capturingRunner{}
+	_, err := c.Apply(context.Background(), r, module.Change{})
+	if err == nil || !strings.Contains(err.Error(), "$TOKEN: op: not signed in") || r.gotCommand != "" {
+		t.Errorf("err %v, ran %q", err, r.gotCommand)
+	}
+}
+
+// A secret that contains another is replaced whole, not half.
+func TestRedactLongestFirst(t *testing.T) {
+	got := redact("abc and abcdef", map[string]string{"SHORT": "abc", "LONG": "abcdef", "EMPTY": ""})
+	if got != "[secret SHORT] and [secret LONG]" {
+		t.Errorf("%q", got)
+	}
 }
