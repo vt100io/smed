@@ -376,6 +376,11 @@ func (h *HostSpec) selectTargets(all []connect.Target) []connect.Target {
 	return out
 }
 
+// Selector reports what h selects: a hostname (Host) or a tag (Tag), the
+// other one empty. vakt uses it to compare what you declared with what is
+// in the tailnet, without a second copy of the matching rules.
+func (h *HostSpec) Selector() (hostname, tag string) { return h.hostname, h.tag }
+
 func (h *HostSpec) describe() string {
 	if h.hostname != "" {
 		return fmt.Sprintf("Host(%q)", h.hostname)

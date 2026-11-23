@@ -17,6 +17,9 @@ import (
 	"time"
 )
 
+// Port is where every machine's responder answers.
+const Port = "7979"
+
 // Version is the version of the Report format. The control center reads
 // machines that are updated at different times, so it must know which
 // shape it got.

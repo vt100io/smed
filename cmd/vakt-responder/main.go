@@ -65,7 +65,7 @@ func handler(r machine.Reader) http.Handler {
 }
 
 // listen adopts the socket systemd opened for this service (socket
-// activation, as unit sets it up), or binds $PORT (default 7979) when run
+// activation, as unit sets it up), or binds $PORT (default machine.Port) when run
 // by hand.
 func listen() (net.Listener, error) {
 	if os.Getenv("LISTEN_PID") == strconv.Itoa(os.Getpid()) && os.Getenv("LISTEN_FDS") == "1" {
@@ -73,7 +73,7 @@ func listen() (net.Listener, error) {
 	}
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "7979"
+		port = machine.Port
 	}
 	return net.Listen("tcp", "localhost:"+port)
 }
