@@ -115,6 +115,11 @@ func (h *HostSpec) Notify(id string) *HostSpec {
 // anything for it to react to. Declaring the same id twice is caught
 // as a duplicate step ID when the graph is built, the same way any
 // other duplicate ID would be.
+//
+// m should be an action that does something every time it runs, such as
+// service.Restart or command.Run. A module that converges to a state,
+// like service.Unit{Active: true}, finds a running service already
+// "active" and does nothing, so the new config never takes effect.
 func (h *HostSpec) Handler(id string, m module.Module) *HostSpec {
 	h.handlers = append(h.handlers, namedHandler{id: id, m: m})
 	return h

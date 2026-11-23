@@ -3,9 +3,8 @@
 // only manages whether an existing unit is active and/or enabled, not
 // whether the unit file itself exists (that's file.Content's job if
 // you're deploying the unit file too). "Restart nginx when its config
-// changes" is handled a layer up, by HostSpec.Notify/Handler — see
-// README.md, "A real dependency graph, not a flat task list" — not by
-// anything in this module.
+// changes" is Restart as a HostSpec.Handler: Unit only converges, and a
+// running unit is already where Unit wants it.
 package service
 
 import (
@@ -22,6 +21,8 @@ import (
 // no "don't care" value, unlike file's optional Mode/Owner/Group — since
 // wanting one managed independently of the other is the rare case, not
 // the common one; that's a cheap follow-up if it's ever actually needed.
+//
+// Unit never restarts a running unit. As a handler, use Restart.
 type Unit struct {
 	Name    string
 	Active  bool

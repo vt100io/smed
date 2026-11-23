@@ -76,7 +76,7 @@ func webServers(ctx context.Context) (*smed.HostSpec, error) {
 		Run(file.Content{Path: "/etc/nginx/conf.d/app.conf", Data: nginxConf, Mode: "0644"}).
 		Notify("restart-nginx").
 		Run(file.Content{Path: "/etc/myapp/api-key.env", Data: "API_KEY=" + apiKey + "\n", Mode: "0600"}).
-		Handler("restart-nginx", service.Unit{Name: "nginx", Active: true, Enabled: true}).
+		Handler("restart-nginx", service.Restart{Name: "nginx"}).
 		Owns("/etc/nginx/conf.d/*"), // delete any stray conf file this chain didn't declare
 		nil
 }
@@ -148,7 +148,7 @@ func main() {
 A few things worth calling out:
 
 - **`webServers` and `dbServers` are ordinary functions.** There's no playbook type to learn, no registry to register them in — a project with ten roles is ten functions like these, composed however your `main` wants (sequentially, as above; concurrently; conditionally on a flag). `go build` is the only "playbook runner" that exists.
-- **`Notify`/`Handler`** replace Ansible's notify/flush-handlers mechanism with one dependency edge: `restart-nginx` depends on the config-file step and only actually runs if that step changed something. No separate flush phase, because there's no separate phase at all — just a graph.
+- **`Notify`/`Handler`** replace Ansible's notify/flush-handlers mechanism with one dependency edge: `restart-nginx` depends on the config-file step and only actually runs if that step changed something. No separate flush phase, because there's no separate phase at all — just a graph. A handler wants an action, not a state: `service.Restart` restarts every time it runs, while `service.Unit{Active: true}` would find nginx already running and do nothing.
 - **`Owns` vs. `Receipts`** are both deletion-without-a-state-file, for two different shapes of "what used to be here": `Owns` lists a real directory on the target right now and deletes anything present but undeclared; `Receipts` remembers a scattered set of paths in a small JSON file smed writes on the host itself, for things that don't share a directory worth owning outright.
 - **The secret never touches source control or a module field as plaintext** — only the `op://` reference does. It's resolved exactly once, inline, and handed straight to the field that needs it.
 - **`BatchSize`/`HealthCheck`** opt into the one barrier smed otherwise never imposes: without them, every matched host runs fully concurrently and a slow host never blocks a fast one. Setting either reintroduces sequential batches with a health gate between them, and a failing batch stops the rollout before the next one starts.

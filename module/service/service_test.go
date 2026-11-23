@@ -168,3 +168,38 @@ func TestApplyHandlesMixedActiveAndEnabled(t *testing.T) {
 		t.Fatalf("got command %q, want disable (not enabled) + start (active)", got)
 	}
 }
+
+func TestRestartAlwaysRuns(t *testing.T) {
+	for _, c := range []struct {
+		r    Restart
+		want string
+	}{
+		{Restart{Name: "nginx"}, "systemctl restart 'nginx' 2>&1"},
+		{Restart{Name: "nginx", Reload: true}, "systemctl reload-or-restart 'nginx' 2>&1"},
+	} {
+		cur, err := c.r.Read(context.Background(), &scriptedRunner{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		change, err := c.r.Diff(c.r.Desired(), cur)
+		if err != nil || change.Action != module.Update {
+			t.Fatalf("diff %+v %v: a restart has no 'already done'", change, err)
+		}
+		run := &scriptedRunner{responses: []scriptedResponse{{out: ""}}}
+		if res, err := c.r.Apply(context.Background(), run, change); err != nil || !res.Changed || run.calls[0] != c.want {
+			t.Errorf("apply %+v %v %q", res, err, run.calls)
+		}
+	}
+}
+
+// A restart into a broken config is a failure, not a change.
+func TestRestartVerifiesItCameBack(t *testing.T) {
+	r := Restart{Name: "nginx"}
+	if err := r.Verify(context.Background(), &scriptedRunner{responses: []scriptedResponse{{out: "active\n"}}}, nil); err != nil {
+		t.Errorf("active: %v", err)
+	}
+	err := r.Verify(context.Background(), &scriptedRunner{responses: []scriptedResponse{{out: "failed\n", err: errors.New("exit 3")}}}, nil)
+	if err == nil || !strings.Contains(err.Error(), "nginx is failed after restart") {
+		t.Errorf("failed: %v", err)
+	}
+}

@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"net"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/vt100io/smed/connect"
 	"github.com/vt100io/smed/dag"
 	"github.com/vt100io/smed/module"
+	"github.com/vt100io/smed/module/service"
 	"github.com/vt100io/smed/tailnet"
 )
 
@@ -274,5 +277,38 @@ func TestApplyErrorsWhenSelectorMatchesNothing(t *testing.T) {
 	}}})
 	if err == nil {
 		t.Fatal("expected an error when the selector matches no targets")
+	}
+}
+
+// runningNginx is a machine where nginx runs and is enabled. It remembers
+// every command it was asked to run.
+type runningNginx struct{ calls []string }
+
+func (r *runningNginx) Run(ctx context.Context, cmd string) (string, error) {
+	r.calls = append(r.calls, cmd)
+	if strings.Contains(cmd, "is-enabled") { // service.Unit's Read
+		return "active\n---SMED-SEP---\nenabled\n", nil
+	}
+	return "active\n", nil
+}
+
+// The README's own example: nginx already runs, its config changes, and
+// the handler must restart it, not find it "already active" and stop.
+func TestRestartHandlerRestartsARunningService(t *testing.T) {
+	config := orderTrackingModule{id: "config", action: module.Create, order: &[]string{}}
+	h := Host("web1").Run(config).Notify("restart-nginx").Handler("restart-nginx", service.Restart{Name: "nginx"})
+
+	r := &runningNginx{}
+	g, err := dag.NewGraph(h.dagSteps(r))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+	for _, res := range g.Run(context.Background(), 0) {
+		if res.ID == "restart-nginx" && res.Status != dag.StatusOK {
+			t.Fatalf("handler: %v %v", res.Status, res.Err)
+		}
+	}
+	if !slices.Contains(r.calls, "systemctl restart 'nginx' 2>&1") {
+		t.Fatalf("nginx was never restarted; ran %q", r.calls)
 	}
 }

@@ -10,7 +10,8 @@
 // restart action ("systemctl restart X") isn't a convergent resource
 // state the way service.Unit{Active: true} is — starting an
 // already-active unit is a no-op, not a restart — so a handler usually
-// needs something action-shaped to wrap, and this is the generic one.
+// needs something action-shaped to wrap. For a systemd unit that's
+// service.Restart; this is the generic one for everything else.
 //
 // Unless is the escape hatch for the other real case this module
 // covers: a command that genuinely does have an "already done" state,
