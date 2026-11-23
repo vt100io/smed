@@ -3,10 +3,9 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 // The palette is vt100.io's own (Nord), so the site and the tool feel like
-// one thing. Green, yellow, orange and red are Nord's aurora, used only to
+// one thing. Green, yellow and red are Nord's aurora, used only to
 // say something: ok, look at this, act on this.
 var (
-	night1 = lipgloss.Color("#3b4252") // selected row
 	night3 = lipgloss.Color("#4c566a") // borders, empty bars, missing samples
 	muted  = lipgloss.Color("#b4bdcc") // secondary text
 	snow   = lipgloss.Color("#eceff4") // names, headings
@@ -30,7 +29,6 @@ var (
 	styleTitleOn  = lipgloss.NewStyle().Foreground(frost).Bold(true)
 	styleBorder   = lipgloss.NewStyle().Foreground(night3)
 	styleBorderOn = lipgloss.NewStyle().Foreground(frost)
-	styleSelected = lipgloss.NewStyle().Background(night1)
 	styleHeading  = lipgloss.NewStyle().Foreground(muted).Bold(true)
 	styleBrand    = lipgloss.NewStyle().Foreground(frost).Bold(true)
 )

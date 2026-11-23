@@ -65,7 +65,8 @@ func (m Model) left(height int) []string {
 	case len(attn) > 0:
 		status = []string{attn.worst().style().Render(fmt.Sprintf("✗ %d need%s you", len(attn), plural(len(attn), "s", "")))}
 	}
-	status = append(status, styleMuted.Render(fmt.Sprintf("%d machines · %d answered", len(m.inv.Machines), answered(m.inv))))
+	n := len(m.inv.Machines)
+	status = append(status, styleMuted.Render(fmt.Sprintf("%d %s · %d answered", n, plural(n, "machine", "machines"), answered(m.inv))))
 
 	services := []string{styleDim.Render("next: apps from unit's"), styleDim.Render("deploy records")}
 	changes := []string{styleDim.Render("next: commits, deploys,"), styleDim.Render("package upgrades")}
@@ -73,12 +74,15 @@ func (m Model) left(height int) []string {
 	fixed := 3 * 4 // three panels of two lines plus borders
 	var machines []string
 	for i, mc := range m.inv.Machines {
-		line := stateDot(mc) + " " + styleText.Render(mc.Name)
-		if mc.Report != nil {
-			line = fitLeft(line, 18) + styleMuted.Render("up "+upFor(mc.Report.Uptime))
-		}
+		// The selection is a mark and a bold name, not a background: a
+		// background is reset by every colored piece inside the row.
+		mark, name := " ", styleText.Render(mc.Name)
 		if m.focus == panelMachines && i == m.sel {
-			line = styleSelected.Render(fit(line, leftWidth-3))
+			mark, name = styleAccent.Render("▸"), styleName.Render(mc.Name)
+		}
+		line := mark + stateDot(mc) + " " + name
+		if mc.Report != nil {
+			line = fitLeft(line, 19) + styleMuted.Render("up "+upFor(mc.Report.Uptime))
 		}
 		machines = append(machines, line)
 	}

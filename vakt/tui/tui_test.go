@@ -51,7 +51,7 @@ func TestQuietWhenNothingNeedsYou(t *testing.T) {
 	m := model(vakt.Inventory{AskedAt: t0, Machines: []vakt.Machine{healthy("vt100", 2, 7, 6)}})
 	checkFits(t, m)
 	v := ansi.Strip(m.View())
-	for _, s := range []string{"Nothing needs you.", "● all quiet", "asked 3s ago", "vt100", "1 machines · 1 answered"} {
+	for _, s := range []string{"Nothing needs you.", "● all quiet", "asked 3s ago", "vt100", "1 machine · 1 answered"} {
 		if !strings.Contains(v, s) {
 			t.Errorf("view lacks %q:\n%s", s, v)
 		}
@@ -92,7 +92,7 @@ func TestMachineScreen(t *testing.T) {
 	}
 	checkFits(t, m)
 	v := ansi.Strip(m.View())
-	for _, s := range []string{"─ vt100 ─", `declared by Host("vt100")`, "load 0.04", "DISKS", "75 GiB free of 80 GiB"} {
+	for _, s := range []string{"─ vt100 ─", "▸● vt100", `declared by Host("vt100")`, "load 0.04", "DISKS", "75 GiB free of 80 GiB"} {
 		if !strings.Contains(v, s) {
 			t.Errorf("machine screen lacks %q:\n%s", s, v)
 		}
