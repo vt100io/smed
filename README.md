@@ -179,7 +179,8 @@ plan, err = hz.Apply(ctx, vt100)
 smed.Host("vt100").Run(...).Apply(ctx, opts)
 ```
 
-- **Check:** before planning a create, smed asks Hetzner whether the type, location and image exist and fit together (an ARM type needs an ARM image), so a typo fails the plan instead of the create. The plan shows the monthly price.
+- **Choose:** `hz.ServerTypes(ctx, "hel1")` lists what Hetzner offers there, cheapest first, with prices and whether it can be ordered now. Print it and it's a table.
+- **Check:** before planning a create, smed asks Hetzner whether the type, location and image exist, can be ordered now and fit together (an ARM type needs an ARM image), so a typo fails the plan instead of the create. The plan shows the monthly price.
 - **SSH keys:** a declared key is uploaded to the project if it's missing, and given to root when the server is created. With a key, Hetzner doesn't email a root password, and its rescue system lets you in with the key if Tailscale ever doesn't. A different key under the same name stops the plan instead of being overwritten.
 - **Create:** a missing server gets its firewall first, then is created with a first-boot script that turns off SSH password logins and, with `JoinTailnet`, installs Tailscale and runs `tailscale up --ssh` with the key and tags. Apply waits for the server to be running and, with `Account.Tailnet`, online in the tailnet.
 - **Update:** a server whose firewall ports differ from `OpenPorts` gets its rules replaced.

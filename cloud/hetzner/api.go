@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -228,21 +229,42 @@ func cloneWith(v url.Values, key, value string) url.Values {
 }
 
 type apiServerType struct {
-	Name         string `json:"name"`
-	Architecture string `json:"architecture"`
-	Deprecated   bool   `json:"deprecated"`
+	Name         string  `json:"name"`
+	Architecture string  `json:"architecture"`
+	CPUType      string  `json:"cpu_type"`
+	Cores        int     `json:"cores"`
+	Memory       float64 `json:"memory"`
+	Disk         int     `json:"disk"`
 	Prices       []struct {
 		Location     string `json:"location"`
 		PriceMonthly struct {
+			Net   string `json:"net"`
 			Gross string `json:"gross"`
 		} `json:"price_monthly"`
 	} `json:"prices"`
+	Locations []struct {
+		Name        string          `json:"name"`
+		Available   bool            `json:"available"`
+		Deprecation *apiDeprecation `json:"deprecation"`
+	} `json:"locations"`
+}
+
+// apiDeprecation is null on what isn't deprecated. (It replaced a field
+// named deprecated, which Hetzner removed on 2 November 2026.)
+type apiDeprecation struct {
+	UnavailableAfter string `json:"unavailable_after"`
+}
+
+// date is the day it can't be ordered after.
+func (d *apiDeprecation) date() string {
+	day, _, _ := strings.Cut(d.UnavailableAfter, "T")
+	return day
 }
 
 type apiImage struct {
-	Name         string  `json:"name"`
-	Architecture string  `json:"architecture"`
-	Deprecated   *string `json:"deprecated"` // when it was deprecated, or null
+	Name         string          `json:"name"`
+	Architecture string          `json:"architecture"`
+	Deprecation  *apiDeprecation `json:"deprecation"`
 }
 
 func (c *client) serverType(ctx context.Context, name string) (*apiServerType, error) {

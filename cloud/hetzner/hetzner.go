@@ -324,18 +324,28 @@ func checkNew(ctx context.Context, c *client, spec *ServerSpec) (string, error) 
 	if st == nil {
 		return fail("there is no server type %q", spec.serverType)
 	}
-	if st.Deprecated {
-		return fail("server type %s is deprecated and can't be ordered", st.Name)
+	offeredHere := false
+	var offered []string
+	for _, l := range st.Locations {
+		offered = append(offered, l.Name)
+		if l.Name != spec.location {
+			continue
+		}
+		offeredHere = true
+		if l.Deprecation != nil {
+			return fail("server type %s is deprecated in %s and can't be ordered after %s", st.Name, l.Name, l.Deprecation.date())
+		}
+		if !l.Available {
+			return fail("server type %s is sold out in %s right now", st.Name, l.Name)
+		}
 	}
 	price := ""
-	var offered []string
 	for _, p := range st.Prices {
-		offered = append(offered, p.Location)
 		if p.Location == spec.location {
 			price = monthly(p.PriceMonthly.Gross)
 		}
 	}
-	if price == "" {
+	if !offeredHere || price == "" {
 		return fail("server type %s isn't offered in %s (it is in %s)", st.Name, spec.location, strings.Join(offered, ", "))
 	}
 	img, err := c.systemImage(ctx, spec.image, st.Architecture)
@@ -345,8 +355,8 @@ func checkNew(ctx context.Context, c *client, spec *ServerSpec) (string, error) 
 	if img == nil {
 		return fail("there is no %s image %q", st.Architecture, spec.image)
 	}
-	if img.Deprecated != nil {
-		return fail("image %s is deprecated", spec.image)
+	if img.Deprecation != nil {
+		return fail("image %s is deprecated and can't be used after %s", spec.image, img.Deprecation.date())
 	}
 	return price, nil
 }

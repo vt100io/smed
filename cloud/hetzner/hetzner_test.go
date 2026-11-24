@@ -278,20 +278,28 @@ func price(location, gross string) map[string]any {
 	return map[string]any{"location": location, "price_monthly": map[string]string{"gross": gross}}
 }
 
+// at is a server type's entry for a location. A nil deprecation is JSON null.
+func at(location string, available bool, deprecation map[string]string) map[string]any {
+	return map[string]any{"name": location, "available": available, "deprecation": deprecation}
+}
+
+var deprecated = map[string]string{"announced": "2026-08-01T00:00:00Z", "unavailable_after": "2027-02-12T00:00:00Z"}
+
 var fakeServerTypes = []map[string]any{
-	{"name": "cx22", "architecture": "x86", "deprecated": false, "prices": []any{price("hel1", "4.5900000000"), price("fsn1", "4.5900000000")}},
-	{"name": "cx32", "architecture": "x86", "deprecated": false, "prices": []any{price("hel1", "7.5900000000")}},
-	{"name": "cpx32", "architecture": "x86", "deprecated": false, "prices": []any{price("fsn1", "13.9900000000")}},
-	{"name": "cax11", "architecture": "arm", "deprecated": false, "prices": []any{price("hel1", "4.4900000000")}},
-	{"name": "cx11", "architecture": "x86", "deprecated": true, "prices": []any{price("hel1", "4.0000000000")}},
+	{"name": "cx22", "architecture": "x86", "prices": []any{price("hel1", "4.5900000000"), price("fsn1", "4.5900000000")}, "locations": []any{at("hel1", true, nil), at("fsn1", true, nil)}},
+	{"name": "cx32", "architecture": "x86", "prices": []any{price("hel1", "7.5900000000")}, "locations": []any{at("hel1", true, nil)}},
+	{"name": "cpx32", "architecture": "x86", "prices": []any{price("fsn1", "13.9900000000")}, "locations": []any{at("fsn1", true, nil)}},
+	{"name": "cax11", "architecture": "arm", "prices": []any{price("hel1", "4.4900000000")}, "locations": []any{at("hel1", true, nil)}},
+	{"name": "cx11", "architecture": "x86", "prices": []any{price("hel1", "4.0000000000")}, "locations": []any{at("hel1", true, deprecated)}},
+	{"name": "cx42", "architecture": "x86", "prices": []any{price("hel1", "16.0000000000"), price("fsn1", "16.0000000000")}, "locations": []any{at("hel1", false, nil), at("fsn1", true, deprecated)}},
 }
 
 var fakeImages = []map[string]any{
-	{"name": "debian-13", "architecture": "x86", "deprecated": nil},
-	{"name": "debian-13", "architecture": "arm", "deprecated": nil},
-	{"name": "ubuntu-24.04", "architecture": "x86", "deprecated": nil},
-	{"name": "debian-11", "architecture": "x86", "deprecated": "2026-08-01T00:00:00Z"},
-	{"name": "fedora-42", "architecture": "x86", "deprecated": nil},
+	{"name": "debian-13", "architecture": "x86", "deprecation": nil},
+	{"name": "debian-13", "architecture": "arm", "deprecation": nil},
+	{"name": "ubuntu-24.04", "architecture": "x86", "deprecation": nil},
+	{"name": "debian-11", "architecture": "x86", "deprecation": deprecated},
+	{"name": "fedora-42", "architecture": "x86", "deprecation": nil},
 }
 
 func (f *fakeHetzner) sorted() []*apiServer {
@@ -562,7 +570,8 @@ func TestPlanChecksTypeLocationAndImage(t *testing.T) {
 	}{
 		{vt100().Location("hel9"), `there is no location "hel9"`},
 		{vt100().Type("cx99"), `there is no server type "cx99"`},
-		{vt100().Type("cx11"), "cx11 is deprecated"},
+		{vt100().Type("cx11"), "cx11 is deprecated in hel1 and can't be ordered after 2027-02-12"},
+		{vt100().Type("cx42"), "cx42 is sold out in hel1 right now"},
 		{vt100().Type("cpx32"), "cpx32 isn't offered in hel1 (it is in fsn1)"},
 		{vt100().Image("debian-14"), `there is no x86 image "debian-14"`},
 		{vt100().Image("debian-11"), "image debian-11 is deprecated"},
