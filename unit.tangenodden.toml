@@ -1,0 +1,3 @@
+# The responder on the tangenodden server: unit deploy -e tangenodden.
+[server]
+host = "tangenodden" # over Tailscale
