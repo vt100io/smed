@@ -4,6 +4,7 @@
 name       = "smed"
 executable = "bin/smed-responder"
 port       = 7979 # no domain: reachable in the tailnet only, never through Caddy
+listen     = "tailnet" # tailscale0 only, not the public interface; needs a unit with listen
 
 ci_check    = "punchcard/ci"
 ci_checksum = "punchcard/sha256"
